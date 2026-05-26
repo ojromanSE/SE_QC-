@@ -1,0 +1,18 @@
+import streamlit as st
+from lib import model
+from lib.filters import apply_rsvcat
+import plotly.express as px
+
+st.title("Well Count")
+
+eco = model.get_lse_eco()
+if eco is None:
+    st.warning("Load PHDWin first."); st.stop()
+sel = st.session_state.get("rsvcat_selection") or []
+e = apply_rsvcat(eco, sel)
+if "Lse_Id" not in e.columns or "Prod Date" not in e.columns:
+    st.error("Need Lse_Id + Prod Date."); st.stop()
+
+g = e.dropna(subset=["Lse_Id", "Prod Date"]).groupby("Prod Date")["Lse_Id"].nunique().reset_index(name="Well Count")
+fig = px.line(g, x="Prod Date", y="Well Count", title="Well Count vs Prod Date")
+st.plotly_chart(fig, use_container_width=True)
