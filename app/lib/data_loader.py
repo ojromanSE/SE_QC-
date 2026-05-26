@@ -25,6 +25,19 @@ def mdbtools_available() -> bool:
     return shutil.which("mdb-tables") is not None and shutil.which("mdb-export") is not None
 
 
+def mdbtools_version() -> Optional[str]:
+    if not mdbtools_available():
+        return None
+    try:
+        out = subprocess.run(["mdb-ver", "--help"], capture_output=True, text=True)
+        # Fall back to `mdb-tables --version` which prints version + exits
+        ver = subprocess.run(["mdb-tables", "--version"], capture_output=True, text=True)
+        text = (ver.stdout or ver.stderr).strip().splitlines()
+        return text[0] if text else None
+    except Exception:
+        return None
+
+
 def list_mdb_tables(mdb_path: Path) -> List[str]:
     out = subprocess.run(
         ["mdb-tables", "-1", str(mdb_path)],
@@ -50,18 +63,37 @@ def save_upload_to_tempfile(uploaded_file, suffix: str) -> Path:
 
 
 @st.cache_data(show_spinner=False)
-def load_phdwin_mdb(file_bytes: bytes, filename: str) -> Dict[str, pd.DataFrame]:
-    """Extract LseInfo / LseEco / MonInfo (and any other tables present) from a PHDWin .mdb."""
+def load_access_db(file_bytes: bytes, filename: str) -> Dict[str, pd.DataFrame]:
+    """Extract all tables from an Access `.mdb` or `.accdb` file.
+
+    On Linux this uses `mdbtools`. `.mdb` (Jet 3/4) is fully supported; `.accdb`
+    (Access 2007+) is supported by mdbtools >= 1.0.0 but with caveats — some
+    column types (Complex, attachments, multivalue) may not decode. If the read
+    fails, callers should fall back to uploading a pre-exported xlsx.
+    """
     suffix = Path(filename).suffix.lower() or ".mdb"
+    if suffix not in (".mdb", ".accdb"):
+        raise ValueError(f"Unsupported Access file extension: {suffix}")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     tmp.write(file_bytes); tmp.flush(); tmp.close()
     p = Path(tmp.name)
     if not mdbtools_available():
         raise RuntimeError(
-            "mdbtools is not installed. Add `mdbtools` to packages.txt or pre-export "
-            "your PHDWin tables to xlsx/csv and upload those instead."
+            "`mdbtools` is not installed on this host. On Streamlit Community Cloud "
+            "it's installed via packages.txt. Locally, install with "
+            "`apt-get install mdbtools` (Linux) / `brew install mdbtools` (Mac), "
+            "or pre-export your tables to xlsx/csv."
         )
-    tables = list_mdb_tables(p)
+    try:
+        tables = list_mdb_tables(p)
+    except subprocess.CalledProcessError as e:
+        hint = ""
+        if suffix == ".accdb":
+            hint = (
+                " — your mdbtools build may not support .accdb (need >= 1.0.0). "
+                "Pre-export your tables to xlsx and upload that instead."
+            )
+        raise RuntimeError(f"Could not read tables from {filename}{hint}\n{e.stderr}") from e
     out: Dict[str, pd.DataFrame] = {}
     for t in tables:
         try:
@@ -69,6 +101,10 @@ def load_phdwin_mdb(file_bytes: bytes, filename: str) -> Dict[str, pd.DataFrame]
         except Exception as e:
             st.warning(f"Skipped table `{t}`: {e}")
     return out
+
+
+# Backwards-compatible alias
+load_phdwin_mdb = load_access_db
 
 
 @st.cache_data(show_spinner=False)

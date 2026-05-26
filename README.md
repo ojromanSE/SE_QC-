@@ -26,8 +26,8 @@ Upload from the sidebar — all stored in `st.session_state`:
 
 | Source | What to upload | Notes |
 |---|---|---|
-| PHDWin | `.mdb` (preferred) **or** `.xlsx` | `.mdb` is parsed via `mdbtools` (Linux). xlsx export must have sheets named `LseInfo`, `LseEco`, `MonInfo`. |
-| Aries  | `.mdb` | Tables are loaded into a separate namespace; Aries page is a stub until you share a chart spec. |
+| PHDWin | `.mdb` / `.accdb` (preferred) **or** `.xlsx` | Parsed via `mdbtools`. `.accdb` requires mdbtools ≥ 1.0.0 (installed on Streamlit Cloud); if read fails, pre-export to xlsx. xlsx export must have sheets named `LseInfo`, `LseEco`, `MonInfo`. |
+| Aries  | `.mdb` / `.accdb` | Tables loaded into a separate namespace; Aries page is a stub until you share a chart spec. |
 | Well headers | `.csv` / `.xlsx` | Must contain surface latitude / longitude columns. |
 | LOS tie-out | `.xlsx` | Must include a `PowerBI_Long` sheet with `Date, Category, Line Item, Value`. |
 
@@ -62,8 +62,11 @@ streamlit run app/app.py
 
 1. Push this repo to GitHub (done — branch `claude/adoring-brown-iN0Xn`).
 2. Create a new app at https://share.streamlit.io pointing at `app/app.py`.
-3. `packages.txt` installs `mdbtools` so PHDWin `.mdb` uploads work on Linux.
-4. `.accdb` files are not supported on Linux — pre-export to xlsx first.
+3. `packages.txt` installs `mdbtools` so Access uploads work on Linux. The
+   Streamlit Cloud image ships with mdbtools ≥ 1.0.0, which has experimental
+   `.accdb` support. Some Access 2007+ column types (Complex, attachments,
+   multi-value) may not decode — if your `.accdb` fails to read, open it in
+   Access and export the needed tables to xlsx, then upload that.
 
 ## Repo layout
 
