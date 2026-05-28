@@ -96,7 +96,10 @@ def treemap(df: pd.DataFrame, path: List[str], values: str, title: str = ""):
     cols = [p for p in path if p in df.columns]
     if not cols:
         st.info("No grouping cols."); return
-    g = df.groupby(cols, dropna=False)[values].sum().reset_index()
+    d = df.copy()
+    for c in cols:  # treemaps reject null/blank path labels
+        d[c] = d[c].fillna("(blank)").replace("", "(blank)")
+    g = d.groupby(cols, dropna=False)[values].sum().reset_index()
     g = g[g[values] > 0]
     if g.empty:
         st.info("No positive values."); return

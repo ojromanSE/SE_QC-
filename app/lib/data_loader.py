@@ -23,6 +23,8 @@ PHDWIN_TABLES = ["LseInfo", "LseEco", "MonInfo"]
 # low on Streamlit Community Cloud (~1 GB RAM) instead of dumping every table.
 PHDWIN_NEEDED = ["LseInfo", "LseEco", "MonInfo", "UnitLbl", "Asofdat"]
 ARIES_TABLES = ["AC_PROPERTY", "AC_ECONOMIC", "AC_ONELINE", "AC_PRODUCT", "AC_DAILY"]
+# Tables the Aries QC report actually needs.
+ARIES_NEEDED = ["AC_PROPERTY", "AC_ONELINE", "AC_MONTHLY", "AC_PRODUCT"]
 
 
 def mdbtools_available() -> bool:

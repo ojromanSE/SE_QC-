@@ -1,0 +1,89 @@
+"""Source-aware accessors for the Aries QC report.
+
+Aries tables live under st.session_state['store']['__aries__'] (loaded raw, then
+enriched by aries_transform). These helpers normalize a per-lease "property"
+lookup (PROPNUM -> RsvCat / LEASE_NAME / OPERATOR / COUNTY / lat / lon) and join
+it onto AC_ONELINE / AC_MONTHLY / AC_PRODUCT so the pages can group by the same
+dimensions the PowerBI report uses.
+"""
+from __future__ import annotations
+from typing import List, Optional
+import pandas as pd
+import streamlit as st
+
+from . import aries_transform as at
+
+
+def _aries() -> dict:
+    return st.session_state.get("store", {}).get("__aries__") or {}
+
+
+def ensure_enriched():
+    at.enrich_aries_store(st.session_state.get("store", {}))
+
+
+def has_aries() -> bool:
+    a = _aries()
+    return bool(a) and "AC_ONELINE" in a and "AC_MONTHLY" in a
+
+
+def get_property() -> Optional[pd.DataFrame]:
+    a = _aries()
+    prop = a.get("AC_PROPERTY")
+    if prop is None or prop.empty:
+        return None
+    cols = {
+        "PROPNUM": "PROPNUM", "LEASE_NAME": "LSE_NAME", "OPERATOR": "OPER",
+        "COUNTY": "County", "SE_RSV_CAT": "RsvCat", "API": "API",
+        "LATITUDE": "Latitude", "LONGITUDE": "Longitude", "WI": "WI", "NRI": "NRI",
+    }
+    keep = {k: v for k, v in cols.items() if k in prop.columns}
+    out = prop[list(keep)].rename(columns=keep)
+    return out
+
+
+def _join_property(df: pd.DataFrame) -> pd.DataFrame:
+    prop = get_property()
+    if prop is not None and "PROPNUM" in df.columns and "PROPNUM" in prop.columns:
+        df = df.merge(prop, on="PROPNUM", how="left", suffixes=("", "_p"))
+    return df
+
+
+def rsvcat_options() -> List[str]:
+    prop = get_property()
+    if prop is None or "RsvCat" not in prop.columns:
+        return []
+    return sorted([c for c in prop["RsvCat"].dropna().unique().tolist()])
+
+
+def get_oneline() -> Optional[pd.DataFrame]:
+    ensure_enriched()
+    a = _aries()
+    one = a.get("AC_ONELINE")
+    if one is None or one.empty:
+        return None
+    return _join_property(one)
+
+
+def get_monthly() -> Optional[pd.DataFrame]:
+    ensure_enriched()
+    a = _aries()
+    mon = a.get("AC_MONTHLY")
+    if mon is None or mon.empty:
+        return None
+    return _join_property(mon)
+
+
+def get_product() -> Optional[pd.DataFrame]:
+    ensure_enriched()
+    a = _aries()
+    prod = a.get("AC_PRODUCT")
+    if prod is None or prod.empty:
+        return None
+    return _join_property(prod)
+
+
+def apply_rsvcat(df: pd.DataFrame, selected: List[str]) -> pd.DataFrame:
+    if not selected or df is None or "RsvCat" not in df.columns:
+        return df
+    return df[df["RsvCat"].isin(selected)]
