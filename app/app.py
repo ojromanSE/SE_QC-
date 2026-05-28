@@ -51,13 +51,19 @@ def sidebar_uploads():
     store = dl.get_store()
 
     with st.sidebar.expander("PHDWin database", expanded=True):
-        st.caption("Upload PHDWin `.mdb`/`.accdb` (parsed via mdbtools) or a pre-exported `.xlsx`.")
-        f = st.file_uploader("PHDWin .mdb / .accdb / .xlsx", type=["mdb", "accdb", "xlsx"], key="phd_upload")
+        st.caption(
+            "Upload PHDWin `.accdb`/`.mdb`, a **.zip of it** (if .accdb uploads "
+            "fail with a network error), or a pre-exported `.xlsx`."
+        )
+        f = st.file_uploader("PHDWin .accdb / .mdb / .zip / .xlsx",
+                             type=["accdb", "mdb", "zip", "xlsx"], key="phd_upload")
         if f is not None:
             try:
                 ext = f.name.lower().rsplit(".", 1)[-1]
                 if ext in ("mdb", "accdb"):
                     tabs = dl.load_access_db(f.getvalue(), f.name, only_tables=dl.PHDWIN_NEEDED)
+                elif ext == "zip":
+                    tabs = dl.load_access_zip(f.getvalue(), f.name, only_tables=dl.PHDWIN_NEEDED)
                 else:
                     tabs = dl.load_phdwin_xlsx(f.getvalue())
                 for k, v in tabs.items():
@@ -67,11 +73,14 @@ def sidebar_uploads():
                 st.error(f"PHDWin load failed: {e}")
 
     with st.sidebar.expander("Aries database", expanded=False):
-        st.caption("Upload Aries `.mdb`/`.accdb`. The Aries QC page is stubbed pending chart spec.")
-        fa = st.file_uploader("Aries .mdb / .accdb", type=["mdb", "accdb"], key="aries_upload")
+        st.caption("Upload Aries `.accdb`/`.mdb` or a `.zip` of it. The Aries QC page is stubbed pending chart spec.")
+        fa = st.file_uploader("Aries .accdb / .mdb / .zip", type=["accdb", "mdb", "zip"], key="aries_upload")
         if fa is not None:
             try:
-                tabs = dl.load_access_db(fa.getvalue(), fa.name)
+                if fa.name.lower().endswith(".zip"):
+                    tabs = dl.load_access_zip(fa.getvalue(), fa.name)
+                else:
+                    tabs = dl.load_access_db(fa.getvalue(), fa.name)
                 store["__aries__"] = tabs
                 st.success(f"Aries tables loaded: {len(tabs)}")
             except Exception as e:

@@ -10,6 +10,7 @@ import io
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -116,6 +117,29 @@ def load_access_db(file_bytes: bytes, filename: str,
         except Exception as e:
             st.warning(f"Skipped table `{t}`: {e}")
     return out
+
+
+@st.cache_data(show_spinner=False)
+def load_access_zip(file_bytes: bytes, filename: str,
+                    only_tables: Optional[List[str]] = None) -> Dict[str, pd.DataFrame]:
+    """Read an Access `.mdb`/`.accdb` that's been zipped.
+
+    Raw Access files are frequently blocked at the network layer (firewall,
+    antivirus, browser, cloud proxy) and fail to upload with an "Axios Network
+    error". Zipping sidesteps that. We extract the first .mdb/.accdb member and
+    parse it with the normal Access loader.
+    """
+    with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+        members = [n for n in zf.namelist()
+                   if n.lower().endswith((".mdb", ".accdb")) and not n.startswith("__MACOSX")]
+        if not members:
+            raise RuntimeError(
+                "No .mdb or .accdb file found inside the zip. "
+                "Zip the Access database (not a folder of other files)."
+            )
+        member = members[0]
+        inner_bytes = zf.read(member)
+    return load_access_db(inner_bytes, Path(member).name, only_tables=only_tables)
 
 
 def _downcast(df: pd.DataFrame) -> pd.DataFrame:
