@@ -31,6 +31,38 @@ Upload from the sidebar — all stored in `st.session_state`:
 | Well headers | `.csv` / `.xlsx` | Must contain surface latitude / longitude columns. |
 | LOS tie-out | `.xlsx` | Must include a `PowerBI_Long` sheet with `Date, Category, Line Item, Value`. |
 
+## How it matches PowerBI (calculated columns)
+
+The report's charts reference "friendly" columns — `Net Oil (Bbl)`, `PV10 ($)`,
+`Total Opex ($)`, `Net Historical Oil (Bbl/d)`, etc. **These do not exist in the
+raw PHDWin database.** They are DAX calculated columns PowerBI derives from the
+raw fields. `app/lib/transform.py` reproduces every one of those formulas in
+pandas, so uploading a raw `.accdb`/`.mdb` (or a raw export) renders the same
+numbers as PowerBI. A few examples:
+
+| Friendly column | Formula (from the .pbix) |
+|---|---|
+| `Net Oil (Bbl)` | `NetOil * 1000` |
+| `PV10 ($)` | `PwC * 1000` |
+| `Total Opex ($)` | `(Net_Lsecost + Net_Wellcost + Net_OtherCost + Net_OpCost) * 1000` |
+| `BFIT CF ($)` | `Ndcash * 1000` |
+| `Opex ($/Boe)` | `Total Opex ($) / Net Equivalent (Boe)` |
+| `Net Historical Oil (Bbl/d)` | `(ProdHist/30.4) * ΣNetOil/ΣGrossOil` (MonInfo is long-format) |
+
+The transforms were validated against the values PowerBI itself stored in the
+`.pbix` DataModel — max difference 0. Enrichment runs automatically after upload
+(`transform.enrich_store`); it only adds friendly columns that aren't already
+present, so a PHDWin report export that already contains them is left untouched.
+
+Raw tables the transform reads: `LseInfo`, `LseEco`, `MonInfo`, and optionally
+`UnitLbl` (NGL unit handling) and `Asofdat` (differentials).
+
+## Sample data
+
+`data/samples/PHDWin_sample.xlsx` is a 6-lease subset of real PHDWin output in
+**raw** form (sheets `LseInfo`, `LseEco`, `MonInfo`, `UnitLbl`, `Asofdat`).
+Upload it via the PHDWin uploader to see every page populated without a database.
+
 ## Expected schema (PHDWin)
 
 Column names come from the PowerBI report and must match. Key columns:

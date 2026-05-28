@@ -7,6 +7,7 @@ from __future__ import annotations
 import streamlit as st
 
 from lib import data_loader as dl
+from lib import transform as tf
 from lib.filters import rsvcat_filter
 
 st.set_page_config(
@@ -95,6 +96,9 @@ def sidebar_uploads():
                 st.success(f"LOS sheets: {', '.join(tabs)}")
             except Exception as e:
                 st.error(f"LOS load failed: {e}")
+
+    # Derive the PowerBI calculated columns from raw PHDWin tables.
+    tf.enrich_store(store)
 
     st.sidebar.divider()
     st.sidebar.header("Loaded tables")

@@ -5,6 +5,13 @@ import pandas as pd
 import streamlit as st
 
 from .data_loader import get_store
+from . import transform as _tf
+
+
+def ensure_enriched():
+    """Derive PowerBI calculated columns if a page is hit before the main
+    sidebar ran enrichment (Streamlit runs each page as its own script)."""
+    _tf.enrich_store(get_store())
 
 
 def _first_date_col(df: pd.DataFrame) -> Optional[str]:
@@ -29,6 +36,7 @@ def get_lse_info() -> Optional[pd.DataFrame]:
 
 def get_lse_eco(joined: bool = True) -> Optional[pd.DataFrame]:
     """LseEco. If joined=True, left-joins LseInfo on Lse_Id and derives Prod Date / Year."""
+    ensure_enriched()
     store = get_store()
     eco = store.get("LseEco")
     if eco is None or eco.empty: return None
@@ -44,6 +52,7 @@ def get_lse_eco(joined: bool = True) -> Optional[pd.DataFrame]:
 
 
 def get_mon_info(joined: bool = True) -> Optional[pd.DataFrame]:
+    ensure_enriched()
     store = get_store()
     mon = store.get("MonInfo")
     if mon is None or mon.empty: return None
