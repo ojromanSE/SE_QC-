@@ -57,7 +57,7 @@ def sidebar_uploads():
             try:
                 ext = f.name.lower().rsplit(".", 1)[-1]
                 if ext in ("mdb", "accdb"):
-                    tabs = dl.load_access_db(f.getvalue(), f.name)
+                    tabs = dl.load_access_db(f.getvalue(), f.name, only_tables=dl.PHDWIN_NEEDED)
                 else:
                     tabs = dl.load_phdwin_xlsx(f.getvalue())
                 for k, v in tabs.items():

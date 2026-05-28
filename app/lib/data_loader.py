@@ -18,6 +18,9 @@ import streamlit as st
 
 
 PHDWIN_TABLES = ["LseInfo", "LseEco", "MonInfo"]
+# Only these are needed to drive the report — reading just these keeps memory
+# low on Streamlit Community Cloud (~1 GB RAM) instead of dumping every table.
+PHDWIN_NEEDED = ["LseInfo", "LseEco", "MonInfo", "UnitLbl", "Asofdat"]
 ARIES_TABLES = ["AC_PROPERTY", "AC_ECONOMIC", "AC_ONELINE", "AC_PRODUCT", "AC_DAILY"]
 
 
@@ -63,13 +66,18 @@ def save_upload_to_tempfile(uploaded_file, suffix: str) -> Path:
 
 
 @st.cache_data(show_spinner=False)
-def load_access_db(file_bytes: bytes, filename: str) -> Dict[str, pd.DataFrame]:
-    """Extract all tables from an Access `.mdb` or `.accdb` file.
+def load_access_db(file_bytes: bytes, filename: str,
+                   only_tables: Optional[List[str]] = None) -> Dict[str, pd.DataFrame]:
+    """Extract tables from an Access `.mdb` or `.accdb` file.
 
     On Linux this uses `mdbtools`. `.mdb` (Jet 3/4) is fully supported; `.accdb`
     (Access 2007+) is supported by mdbtools >= 1.0.0 but with caveats — some
     column types (Complex, attachments, multivalue) may not decode. If the read
     fails, callers should fall back to uploading a pre-exported xlsx.
+
+    If `only_tables` is given, only those tables are read (case-insensitive
+    match), which keeps memory low. If none of them are present, all tables are
+    read so unknown schemas still work.
     """
     suffix = Path(filename).suffix.lower() or ".mdb"
     if suffix not in (".mdb", ".accdb"):
@@ -94,13 +102,29 @@ def load_access_db(file_bytes: bytes, filename: str) -> Dict[str, pd.DataFrame]:
                 "Pre-export your tables to xlsx and upload that instead."
             )
         raise RuntimeError(f"Could not read tables from {filename}{hint}\n{e.stderr}") from e
+
+    if only_tables:
+        wanted = {t.lower() for t in only_tables}
+        selected = [t for t in tables if t.lower() in wanted]
+        if selected:  # only narrow if we actually matched something
+            tables = selected
+
     out: Dict[str, pd.DataFrame] = {}
     for t in tables:
         try:
-            out[t] = read_mdb_table(p, t)
+            out[t] = _downcast(read_mdb_table(p, t))
         except Exception as e:
             st.warning(f"Skipped table `{t}`: {e}")
     return out
+
+
+def _downcast(df: pd.DataFrame) -> pd.DataFrame:
+    """Shrink float64/int64 columns to reduce memory footprint."""
+    for c in df.select_dtypes(include=["float64"]).columns:
+        df[c] = pd.to_numeric(df[c], downcast="float")
+    for c in df.select_dtypes(include=["int64"]).columns:
+        df[c] = pd.to_numeric(df[c], downcast="integer")
+    return df
 
 
 # Backwards-compatible alias
