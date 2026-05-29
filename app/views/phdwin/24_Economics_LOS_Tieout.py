@@ -7,22 +7,29 @@ st.title("Economics LOS Tie Out")
 los = model.get_los_long()
 eco = model.get_lse_eco()
 if los is None:
-    st.warning("Upload the LOS tie-out workbook (PowerBI_Long sheet)."); st.stop()
+    st.warning("Upload the LOS tie-out workbook in the sidebar (LOS_Data or PowerBI_Long sheet)."); st.stop()
 if eco is None:
     st.warning("Load PHDWin first."); st.stop()
 sel = st.session_state.get("rsvcat_selection") or []
 e = apply_rsvcat(eco, sel)
 
-mapping = [
-    ("Total Operating Expense" if "Total Operating Expense" in los["Line Item"].unique() else "Operating Expense",
-     "Total Opex ($)", "Opex — Reported vs Calculated"),
-    ("Total Revenue", "Total Revenue ($)", "Revenue — Reported vs Calculated"),
-]
-for item, calc, title in mapping:
-    if item in los["Line Item"].unique() and calc in e.columns:
-        charts.los_tie_out_bars(los, item, e, "Prod Date", calc, title=title)
-    else:
-        st.info(f"Skipped {title} (missing `{item}` or `{calc}`).")
+items = set(los["Line Item"].dropna().unique())
+def pick(*cands):
+    return next((c for c in cands if c in items), None)
 
-st.subheader("Differentials (Reported vs As-Of-Date Diff)")
-st.caption("If your data store includes an `Asofdat` table with DiffValue / NGL Diff columns, add it via the PHDWin loader and update this page.")
+mapping = [
+    (pick("Total OpEx", "Total Operating Expense", "Operating Expense"), "Total Opex ($)", "Opex — Reported vs Calculated"),
+    (pick("Total Revenue"), "Total Revenue ($)", "Total Revenue — Reported vs Calculated"),
+    (pick("Oil Revenue ($)", "Oil Revenue"), "Net Oil Revenue ($)", "Oil Revenue — Reported vs Calculated"),
+    (pick("Gas Revenue ($)", "Gas Revenue"), "Net Gas Revenue ($)", "Gas Revenue — Reported vs Calculated"),
+    (pick("NGL Revenue ($)", "NGL Revenue"), "Net NGL Revenue ($)", "NGL Revenue — Reported vs Calculated"),
+]
+any_shown = False
+for item, calc, title in mapping:
+    if item and calc in e.columns:
+        charts.los_tie_out_bars(los, item, e, "Prod Date", calc, title=title)
+        any_shown = True
+    else:
+        st.info(f"Skipped {title} (no matching LOS line item or `{calc}`).")
+if not any_shown:
+    st.caption("LOS line items found: " + ", ".join(sorted(items)))

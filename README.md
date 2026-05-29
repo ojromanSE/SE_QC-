@@ -20,6 +20,13 @@ Community Cloud (Linux).
 The global page-level slicer **Reserve Category (RsvCat)** in the sidebar
 matches the PowerBI page filter.
 
+### Chart options (sidebar)
+
+- **Y-axis scale** — toggle every magnitude chart between Linear and Log.
+- **Anchor date range** — clip all time-series charts (production, cash flow,
+  prices, well count, LOS tie-outs, box plots) to a chosen start/end. Applies to
+  both datetime and Year axes.
+
 ## Inputs
 
 Upload from the sidebar — all stored in `st.session_state`:
@@ -29,7 +36,7 @@ Upload from the sidebar — all stored in `st.session_state`:
 | PHDWin | `.mdb` / `.accdb` (preferred) **or** `.xlsx` | Parsed via `mdbtools`. `.accdb` requires mdbtools ≥ 1.0.0 (installed on Streamlit Cloud); if read fails, pre-export to xlsx. xlsx export must have sheets named `LseInfo`, `LseEco`, `MonInfo`. |
 | Aries  | `.mdb` / `.accdb` | Tables loaded into a separate namespace; Aries page is a stub until you share a chart spec. |
 | Well headers | `.csv` / `.xlsx` | Must contain surface latitude / longitude columns. |
-| LOS tie-out | `.xlsx` | Must include a `PowerBI_Long` sheet with `Date, Category, Line Item, Value`. |
+| LOS tie-out | `.xlsx` | A `LOS_Data` sheet (`Date, Data, Category, Line Item, LOS Value, LTM, L6M, L3M`) — only `LOS Historical` rows are used — **or** a legacy `PowerBI_Long` sheet (`Date, Category, Line Item, Value`). Both are normalized automatically. |
 
 ## How it matches PowerBI (calculated columns)
 

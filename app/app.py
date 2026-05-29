@@ -85,10 +85,52 @@ def sidebar_uploads():
         st.session_state.setdefault("aries_rsvcat_selection", aopts)
         st.sidebar.multiselect("Aries RsvCat", aopts, key="aries_rsvcat_selection")
 
+    chart_options(store)
+
     st.sidebar.divider()
     aries = store.get("__aries__") or {}
     st.sidebar.caption("**Loaded:** " + (", ".join(
         [k for k in store if not k.startswith("__")] + [f"Aries:{k}" for k in aries]) or "nothing yet"))
+
+
+def _data_date_span(store: dict):
+    """Min/max date across loaded time-series tables, for the date-range anchor."""
+    import pandas as pd
+    mins, maxs = [], []
+    frames = [store.get("LseEco"), store.get("MonInfo"), store.get("los_long"), store.get("PowerBI_Long")]
+    aries = store.get("__aries__") or {}
+    frames += [aries.get("AC_MONTHLY"), aries.get("AC_PRODUCT")]
+    for df in frames:
+        if df is None:
+            continue
+        for col in ["Prod Date", "OUTDATE", "P_DATE", "EcoDate", "Date"]:
+            if col in df.columns:
+                s = pd.to_datetime(df[col], errors="coerce").dropna()
+                if not s.empty:
+                    mins.append(s.min()); maxs.append(s.max())
+                break
+    if mins and maxs:
+        return min(mins).date(), max(maxs).date()
+    return None
+
+
+def chart_options(store: dict):
+    st.sidebar.divider()
+    st.sidebar.header("Chart options")
+    scale = st.sidebar.radio("Y-axis scale", ["Linear", "Log"], horizontal=True, key="chart_yscale_label")
+    st.session_state["chart_yscale"] = "log" if scale == "Log" else "linear"
+
+    span = _data_date_span(store)
+    if span:
+        anchor = st.sidebar.checkbox("Anchor date range", value=False, key="chart_date_anchor")
+        if anchor:
+            dr = st.sidebar.date_input("Date range", value=span, min_value=span[0], max_value=span[1],
+                                       key="chart_date_input")
+            st.session_state["chart_date_range"] = dr if isinstance(dr, (list, tuple)) and len(dr) == 2 else None
+        else:
+            st.session_state["chart_date_range"] = None
+    else:
+        st.session_state["chart_date_range"] = None
 
 
 def _pg(path: str, title: str, icon: str = ""):

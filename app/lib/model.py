@@ -73,8 +73,9 @@ def get_well_headers() -> Optional[pd.DataFrame]:
 
 def get_los_long() -> Optional[pd.DataFrame]:
     store = get_store()
-    los = store.get("PowerBI_Long")
-    if los is None and "los_long" in store: los = store["los_long"]
+    los = store.get("los_long")
+    if los is None:
+        los = store.get("PowerBI_Long")
     return los
 
 

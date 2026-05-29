@@ -173,16 +173,33 @@ def load_well_headers(file_bytes: bytes, filename: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_los_workbook(file_bytes: bytes) -> Dict[str, pd.DataFrame]:
-    """LOS tie-out workbook. Expects a `PowerBI_Long` sheet with columns
-    Date, Category, Line Item, Value.
+    """LOS tie-out workbook.
+
+    Supports two layouts and normalizes both into a `los_long` frame with
+    columns Date, Category, Line Item, Value (+ LTM/L6M/L3M when present):
+      * new export: a `LOS_Data` sheet (Date, Data, Category, Line Item,
+        LOS Value, LTM, L6M, L3M). Only `LOS Historical` rows are kept for
+        tie-out (the actual monthly LOS values).
+      * legacy export: a `PowerBI_Long` sheet (Date, Category, Line Item, Value).
     """
     xl = pd.ExcelFile(io.BytesIO(file_bytes))
     out = {s: pd.read_excel(xl, sheet_name=s) for s in xl.sheet_names}
-    if "PowerBI_Long" in out:
-        df = out["PowerBI_Long"]
+
+    if "LOS_Data" in out:
+        d = out["LOS_Data"].copy()
+        d = d.rename(columns={"LOS Value": "Value"})
+        if "Data" in d.columns:
+            d = d[d["Data"].astype(str).str.contains("Historical", case=False, na=False)]
+        if "Date" in d.columns:
+            d["Date"] = pd.to_datetime(d["Date"], errors="coerce")
+        keep = ["Date", "Category", "Line Item", "Value"] + [c for c in ["LTM", "L6M", "L3M"] if c in d.columns]
+        out["los_long"] = d[[c for c in keep if c in d.columns]].dropna(subset=["Value"])
+    elif "PowerBI_Long" in out:
+        df = out["PowerBI_Long"].copy()
         if "Date" in df.columns:
             df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
         out["PowerBI_Long"] = df
+        out["los_long"] = df
     return out
 
 

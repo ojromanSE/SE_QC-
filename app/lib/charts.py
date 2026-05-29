@@ -10,6 +10,36 @@ import streamlit as st
 PALETTE = px.colors.qualitative.Plotly
 
 
+# --- shared chart controls (set from the sidebar in app.py) ----------------
+def yaxis_type() -> str:
+    """'log' or 'linear' from the sidebar Y-axis scale toggle."""
+    return "log" if st.session_state.get("chart_yscale") == "log" else "linear"
+
+
+def filter_dates(df: pd.DataFrame, xcol: str) -> pd.DataFrame:
+    """If a date range is anchored in the sidebar, clip `df` on its x column.
+
+    Works for datetime x columns and integer Year columns.
+    """
+    rng = st.session_state.get("chart_date_range")
+    if not rng or len(rng) != 2 or xcol not in df.columns:
+        return df
+    start, end = pd.Timestamp(rng[0]), pd.Timestamp(rng[1])
+    col = df[xcol]
+    if pd.api.types.is_datetime64_any_dtype(col):
+        return df[(col >= start) & (col <= end)]
+    if pd.api.types.is_numeric_dtype(col):
+        return df[(col >= start.year) & (col <= end.year)]
+    return df
+
+
+def _apply_yscale(fig, axis: str = "y"):
+    t = yaxis_type()
+    if t == "log":
+        (fig.update_yaxes if axis == "y" else fig.update_xaxes)(type="log")
+    return fig
+
+
 def fmt_int(s: pd.Series) -> pd.Series:
     return s.map(lambda v: "" if pd.isna(v) else f"{v:,.0f}")
 
@@ -43,29 +73,35 @@ def grouped_column(df: pd.DataFrame, x: str, ys: List[str], title: str = "", bar
     cols = [c for c in ys if c in df.columns]
     if not cols:
         st.info(f"Columns not found: {ys}"); return
+    df = filter_dates(df, x)
     g = df.groupby(x, dropna=False)[cols].sum().reset_index().sort_values(x)
     fig = go.Figure()
     for i, c in enumerate(cols):
         fig.add_bar(x=g[x], y=g[c], name=c, marker_color=PALETTE[i % len(PALETTE)])
     fig.update_layout(title=title, barmode=barmode, xaxis_title=x, legend_title="")
+    _apply_yscale(fig)
     st.plotly_chart(fig, use_container_width=True)
 
 
 def stacked_column(df: pd.DataFrame, x: str, y: str, color: str, title: str = ""):
     if df.empty or any(c not in df.columns for c in [x, y, color]):
         st.info("No data."); return
+    df = filter_dates(df, x)
     g = df.groupby([x, color], dropna=False)[y].sum().reset_index().sort_values(x)
     fig = px.bar(g, x=x, y=y, color=color, title=title)
     fig.update_layout(barmode="stack")
+    _apply_yscale(fig)
     st.plotly_chart(fig, use_container_width=True)
 
 
 def line(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, title: str = ""):
     if df.empty or x not in df.columns or y not in df.columns:
         st.info("No data."); return
+    df = filter_dates(df, x)
     by = [x] + ([color] if color and color in df.columns else [])
     g = df.groupby(by, dropna=False)[y].sum().reset_index().sort_values(x)
     fig = px.line(g, x=x, y=y, color=color if color in (df.columns if color else []) else None, title=title)
+    _apply_yscale(fig)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -74,6 +110,7 @@ def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: s
     cols = [c for c in bar_ys if c in df.columns] + ([line_y] if line_y in df.columns else [])
     if df.empty or not cols:
         st.info("No data."); return
+    df = filter_dates(df, x)
     g = df.groupby(x, dropna=False)[cols].sum().reset_index().sort_values(x)
     fig = go.Figure()
     for i, c in enumerate([c for c in bar_ys if c in g.columns]):
@@ -81,10 +118,11 @@ def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: s
     if line_y in g.columns:
         fig.add_trace(go.Scatter(x=g[x], y=g[line_y], name=line_y, mode="lines+markers",
                                  yaxis="y2", line=dict(color="#d62728", width=3)))
+    log = yaxis_type() == "log"
     fig.update_layout(
         title=title, barmode="relative",
-        yaxis=dict(title="Components ($)"),
-        yaxis2=dict(title=line_y, overlaying="y", side="right"),
+        yaxis=dict(title="Components ($)", type="log" if log else "linear"),
+        yaxis2=dict(title=line_y, overlaying="y", side="right", type="log" if log else "linear"),
         legend=dict(orientation="h", y=-0.2),
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -111,11 +149,13 @@ def treemap(df: pd.DataFrame, path: List[str], values: str, title: str = ""):
 def box_by_group(df: pd.DataFrame, group: str, value: str, sample: Optional[str] = None, title: str = ""):
     if df.empty or group not in df.columns or value not in df.columns:
         st.info("No data."); return
+    df = filter_dates(df, group)
     d = df[[group, value] + ([sample] if sample and sample in df.columns else [])].dropna(subset=[value])
     if d.empty:
         st.info("No data."); return
     fig = px.box(d, x=group, y=value, points="outliers", title=title,
                  hover_data=[sample] if sample and sample in d.columns else None)
+    _apply_yscale(fig)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -126,6 +166,7 @@ def histogram(df: pd.DataFrame, value: str, bins: int = 30, title: str = ""):
     if d.empty:
         st.info("No data."); return
     fig = px.histogram(d, x=value, nbins=bins, title=title)
+    _apply_yscale(fig)  # log scale applies to the count (y) axis
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -134,6 +175,7 @@ def scatter(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, hover
         st.info("No data."); return
     fig = px.scatter(df, x=x, y=y, color=color if color in df.columns else None,
                      hover_name=hover if hover and hover in df.columns else None, title=title)
+    _apply_yscale(fig)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -166,10 +208,12 @@ def los_tie_out_bars(long_df: pd.DataFrame, line_item: str, calc_df: pd.DataFram
     a = a.groupby("Date", as_index=False)["Reported (LOS)"].sum()
     b = b.groupby("Date", as_index=False)["Calculated"].sum()
     m = pd.merge(a, b, on="Date", how="outer").sort_values("Date")
+    m = filter_dates(m, "Date")
     if m.empty:
         st.info("No tie-out data."); return
     fig = go.Figure()
     fig.add_bar(x=m["Date"], y=m["Reported (LOS)"], name="Reported (LOS)", marker_color=PALETTE[0])
     fig.add_bar(x=m["Date"], y=m["Calculated"], name="Calculated", marker_color=PALETTE[1])
     fig.update_layout(title=title, barmode="group", xaxis_title="Date", legend=dict(orientation="h", y=-0.2))
+    _apply_yscale(fig)
     st.plotly_chart(fig, use_container_width=True)
