@@ -5,7 +5,6 @@ multi-page Streamlit app. Sidebar uploads run on every page; navigation is
 grouped into Overview / PHDWin QC / Aries QC via st.navigation.
 """
 from __future__ import annotations
-from pathlib import Path
 import streamlit as st
 
 from lib import data_loader as dl
@@ -13,8 +12,6 @@ from lib import transform as tf
 from lib import aries_transform as atf
 
 st.set_page_config(page_title="PHDWin / Aries QC", layout="wide")
-
-VIEWS = Path(__file__).parent / "views"
 
 
 def sidebar_uploads():
@@ -95,7 +92,12 @@ def sidebar_uploads():
 
 
 def _pg(path: str, title: str, icon: str = ""):
-    return st.Page(str(VIEWS / path), title=title, icon=icon or None)
+    # st.Page resolves the script path relative to the entrypoint (app.py), so
+    # use a path relative to app/. Unique url_path per page because st.Page
+    # derives the URL from the filename stem and ignores the folder, so the
+    # same-named phdwin/ and aries/ files would otherwise collide.
+    slug = path.replace("/", "_").replace(".py", "")
+    return st.Page(f"views/{path}", title=title, icon=icon or None, url_path=slug)
 
 
 def main():
