@@ -249,24 +249,73 @@ def scatter(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, hover
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
-def well_map(df: pd.DataFrame, lat: str, lon: str, size: Optional[str] = None, hover: Optional[str] = None, title: str = ""):
-    if df.empty or lat not in df.columns or lon not in df.columns:
-        st.info("Map needs latitude/longitude columns."); return
-    d = df.dropna(subset=[lat, lon]).copy()
+def _map_zoom(lat, lon):
+    """Rough zoom level from coordinate span."""
+    span = max((lat.max() - lat.min()), (lon.max() - lon.min()), 1e-4)
+    import math
+    return float(min(13, max(3, 8 - math.log2(span * 12 + 1))))
+
+
+def well_map(df: pd.DataFrame, slat: str, slon: str, blat: Optional[str] = None, blon: Optional[str] = None,
+             hover: Optional[str] = None, size: Optional[str] = None, title: str = "", key: str = ""):
+    """Draw wells from well-header coordinates.
+
+    Horizontal/deviated wells (a bottom-hole location that differs from the
+    surface hole) are drawn as a line from surface to bottom hole; vertical
+    wells are drawn as a point at the well head. Surface holes are always
+    marked, optionally sized by `size` (e.g. PV10).
+    """
+    if df.empty or slat not in df.columns or slon not in df.columns:
+        st.info("Map needs surface-hole latitude/longitude columns."); return
+    d = df.dropna(subset=[slat, slon]).copy()
     if d.empty:
-        st.info("No georeferenced rows."); return
-    s = None
+        st.info("No georeferenced wells."); return
+
+    has_bh = bool(blat and blon and blat in d.columns and blon in d.columns)
+    eps = 1e-6
+    if has_bh:
+        bh = pd.to_numeric(d[blat], errors="coerce")
+        bo = pd.to_numeric(d[blon], errors="coerce")
+        is_lat = bh.notna() & bo.notna() & ((bh - d[slat]).abs() + (bo - d[slon]).abs() > eps)
+    else:
+        is_lat = pd.Series(False, index=d.index)
+
+    fig = go.Figure()
+
+    # Lateral lines (one trace, segments separated by None)
+    lat_lines, lon_lines = [], []
+    for _, r in d[is_lat].iterrows():
+        lat_lines += [r[slat], r[blat], None]
+        lon_lines += [r[slon], r[blon], None]
+    if lat_lines:
+        fig.add_trace(go.Scattermapbox(lat=lat_lines, lon=lon_lines, mode="lines",
+                                       line=dict(width=3, color="#d62728"),
+                                       name="Lateral", hoverinfo="skip"))
+
+    # Surface-hole markers
+    hover_txt = d[hover].astype(str) if hover and hover in d.columns else None
+    marker = dict(size=9, color="#1f77b4")
     if size and size in d.columns:
-        s = d[size].abs()
-        if s.max() and s.max() > 0:
-            s = (s / s.max()) * 40 + 5
-    fig = px.scatter_mapbox(
-        d, lat=lat, lon=lon, size=s if s is not None else None,
-        hover_name=hover if hover and hover in d.columns else None,
-        zoom=4, height=600, title=title,
+        s = pd.to_numeric(d[size], errors="coerce").abs()
+        if s.notna().any() and s.max() and s.max() > 0:
+            marker = dict(size=(s / s.max() * 26 + 7).fillna(7), color=s, colorscale="Viridis",
+                          showscale=True, colorbar=dict(title=size))
+    fig.add_trace(go.Scattermapbox(
+        lat=d[slat], lon=d[slon], mode="markers", marker=marker,
+        text=hover_txt, name="Well head",
+        hovertemplate=("%{text}<br>" if hover_txt is not None else "") +
+                      "%{lat:.4f}, %{lon:.4f}" +
+                      (f"<br>{size}: %{{marker.color:,.0f}}" if isinstance(marker.get("color"), pd.Series) else "") +
+                      "<extra></extra>",
+    ))
+
+    fig.update_layout(
+        title=title, height=620, mapbox_style="open-street-map",
+        mapbox=dict(center=dict(lat=float(d[slat].mean()), lon=float(d[slon].mean())),
+                    zoom=_map_zoom(d[slat], d[slon])),
+        margin=dict(l=0, r=0, t=40, b=0), legend=dict(orientation="h", y=-0.05),
     )
-    fig.update_layout(mapbox_style="open-street-map", margin=dict(l=0, r=0, t=40, b=0))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"{_ckey(key, title)}_fig")
 
 
 def los_tie_out_bars(long_df: pd.DataFrame, line_item: str, calc_df: pd.DataFrame, calc_date: str, calc_value: str,

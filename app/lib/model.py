@@ -82,3 +82,11 @@ def get_los_long() -> Optional[pd.DataFrame]:
 def lse_eco_columns() -> list[str]:
     eco = get_store().get("LseEco")
     return list(eco.columns) if eco is not None else []
+
+
+def normalize_api(series: pd.Series) -> pd.Series:
+    """Reduce any API (10/12/14-digit, with or without dashes) to a 10-digit
+    API10 string, for joining well headers to PHDWin/Aries property tables."""
+    digits = series.astype(str).str.replace(r"\D", "", regex=True)
+    return digits.str.slice(0, 10).where(digits.str.len() >= 10, digits)
+
