@@ -20,12 +20,19 @@ Community Cloud (Linux).
 The global page-level slicer **Reserve Category (RsvCat)** in the sidebar
 matches the PowerBI page filter.
 
-### Chart options (sidebar)
+### Chart options
 
-- **Y-axis scale** — toggle every magnitude chart between Linear and Log.
-- **Anchor date range** — clip all time-series charts (production, cash flow,
-  prices, well count, LOS tie-outs, box plots) to a chosen start/end. Applies to
-  both datetime and Year axes.
+Every chart has its own **Options** popover (button above the plot):
+
+- **Y-axis scale** — Linear / Log, per plot.
+- **Date range** — clip that plot's time axis (datetime or Year).
+- **By-lease plots** (line & scatter coloured by lease) also get a **lease
+  multiselect** and a **Roll up (combine all)** toggle to switch between
+  per-lease breakout and a single aggregated series.
+
+The sidebar **Chart options** section sets the *defaults* each plot's popover
+starts from (handy for setting log scale or a date window globally, then
+overriding individual plots).
 
 ## Inputs
 
