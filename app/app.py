@@ -129,41 +129,6 @@ def sidebar_uploads():
     tf.enrich_store(store)
     atf.enrich_aries_store(store)
 
-    # --- Step 2: filters (source-aware; the other source's controls hide) --
-    from lib import aries as A
-    if phd_loaded or aries_loaded:
-        st.sidebar.divider()
-        st.sidebar.header("Step 2 · Filters")
-
-    if aries_loaded:
-        scen_opts = A.scenario_options()
-        if scen_opts:
-            default_scen = A.default_scenario()
-            st.session_state.setdefault("aries_scenarios", [default_scen] if default_scen else scen_opts[:1])
-            st.sidebar.multiselect("Scenario(s)", scen_opts, key="aries_scenarios",
-                                   help="Pick one case, or two+ to compare. Default is the case "
-                                        "with monthly economics so reserves and cashflow tie.")
-            if len(st.session_state.get("aries_scenarios") or []) > 1:
-                st.session_state.setdefault("aries_scn_mode", "Overlay")
-                st.sidebar.radio("Multi-scenario view", ["Overlay", "Split"], horizontal=True,
-                                 key="aries_scn_mode",
-                                 help="Overlay = scenarios as series on one chart (line/scatter/box). "
-                                      "Split = a panel per scenario for every chart.")
-        aopts = A.rsvcat_options()
-        if aopts:
-            st.session_state.setdefault("aries_rsvcat_selection", aopts)
-            st.sidebar.multiselect("Reserve category", aopts, key="aries_rsvcat_selection")
-
-    if phd_loaded:
-        lse = store.get("LseInfo")
-        if lse is not None and "RsvCat" in lse.columns:
-            opts = sorted(lse["RsvCat"].dropna().unique().tolist())
-            st.session_state.setdefault("rsvcat_selection", opts)
-            st.sidebar.multiselect("Reserve category", opts, key="rsvcat_selection")
-
-    if phd_loaded or aries_loaded:
-        chart_options(store)
-
 
 def _data_date_span(store: dict):
     """Min/max date across loaded time-series tables, for the date-range anchor."""
@@ -186,21 +151,66 @@ def _data_date_span(store: dict):
     return None
 
 
-def chart_options(store: dict):
-    st.sidebar.divider()
-    st.sidebar.header("Chart options")
-    scale = st.sidebar.radio("Y-axis scale", ["Linear", "Log"], horizontal=True, key="chart_yscale_label")
+def render_top_filters(store: dict, phd_loaded: bool, aries_loaded: bool):
+    """Render the global filters as a bar at the top of the main content area
+    (above each page's title), instead of in the sidebar, so they stay handy
+    while working through a page's visualizations."""
+    if not (phd_loaded or aries_loaded):
+        return
+    from lib import aries as A
+
+    with st.container(border=True):
+        widgets = []  # (label-less) render callables, laid out in equal columns
+
+        if aries_loaded:
+            scen_opts = A.scenario_options()
+            if scen_opts:
+                default_scen = A.default_scenario()
+                st.session_state.setdefault("aries_scenarios", [default_scen] if default_scen else scen_opts[:1])
+                widgets.append(lambda c: c.multiselect(
+                    "Scenario(s)", scen_opts, key="aries_scenarios",
+                    help="Pick one case, or two+ to compare."))
+            if len(st.session_state.get("aries_scenarios") or []) > 1:
+                st.session_state.setdefault("aries_scn_mode", "Overlay")
+                widgets.append(lambda c: c.radio(
+                    "Multi-scenario view", ["Overlay", "Split"], horizontal=True, key="aries_scn_mode",
+                    help="Overlay = scenarios as series on one chart. Split = a panel per scenario."))
+            aopts = A.rsvcat_options()
+            if aopts:
+                st.session_state.setdefault("aries_rsvcat_selection", aopts)
+                widgets.append(lambda c: c.multiselect("Reserve category", aopts, key="aries_rsvcat_selection"))
+
+        if phd_loaded:
+            lse = store.get("LseInfo")
+            if lse is not None and "RsvCat" in lse.columns:
+                opts = sorted(lse["RsvCat"].dropna().unique().tolist())
+                st.session_state.setdefault("rsvcat_selection", opts)
+                widgets.append(lambda c: c.multiselect("Reserve category", opts, key="rsvcat_selection"))
+
+        # Y-axis scale always available
+        widgets.append(_scale_widget)
+
+        cols = st.columns(len(widgets))
+        for render, col in zip(widgets, cols):
+            render(col)
+
+        _date_widget(store)
+
+
+def _scale_widget(col):
+    scale = col.radio("Y-axis scale", ["Linear", "Log"], horizontal=True, key="chart_yscale_label")
     st.session_state["chart_yscale"] = "log" if scale == "Log" else "linear"
 
+
+def _date_widget(store: dict):
     span = _data_date_span(store)
-    if span:
-        anchor = st.sidebar.checkbox("Anchor date range", value=False, key="chart_date_anchor")
-        if anchor:
-            dr = st.sidebar.date_input("Date range", value=span, min_value=span[0], max_value=span[1],
-                                       key="chart_date_input")
-            st.session_state["chart_date_range"] = dr if isinstance(dr, (list, tuple)) and len(dr) == 2 else None
-        else:
-            st.session_state["chart_date_range"] = None
+    if not span:
+        st.session_state["chart_date_range"] = None
+        return
+    anchor = st.checkbox("Anchor date range", value=False, key="chart_date_anchor")
+    if anchor:
+        dr = st.date_input("Date range", value=span, min_value=span[0], max_value=span[1], key="chart_date_input")
+        st.session_state["chart_date_range"] = dr if isinstance(dr, (list, tuple)) and len(dr) == 2 else None
     else:
         st.session_state["chart_date_range"] = None
 
@@ -287,17 +297,14 @@ def main():
     # data + filter steps so the order is data -> filters -> visualizations.
     nav = st.navigation(ordered, position="hidden")
 
-    # --- Step 3: visualizations (source-aware page links) ------------------
+    # --- Step 2: visualizations (source-aware page links) ------------------
     st.sidebar.divider()
-    st.sidebar.header("Step 3 · Visualizations")
+    st.sidebar.header("Step 2 · Visualizations")
     if aries_loaded:
-        if not phd_loaded:
-            for p in aries:
-                st.sidebar.page_link(p)
-        else:
+        if phd_loaded:
             st.sidebar.caption("**Aries QC**")
-            for p in aries:
-                st.sidebar.page_link(p)
+        for p in aries:
+            st.sidebar.page_link(p)
     if phd_loaded:
         if aries_loaded:
             st.sidebar.caption("**PHDWin QC**")
@@ -308,6 +315,8 @@ def main():
     st.sidebar.divider()
     st.sidebar.page_link(inspector)
 
+    # Filters render as a bar at the top of the main area, above the page title.
+    render_top_filters(store, phd_loaded, aries_loaded)
     nav.run()
 
 
