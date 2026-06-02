@@ -65,6 +65,42 @@ def _join_property(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def scenario_options() -> List[str]:
+    """Distinct SCENARIO values across AC_ONELINE + AC_MONTHLY."""
+    a = _aries()
+    vals = set()
+    for t in ("AC_ONELINE", "AC_MONTHLY"):
+        df = a.get(t)
+        if df is not None and not df.empty and "SCENARIO" in df.columns:
+            vals.update(df["SCENARIO"].dropna().astype(str).unique().tolist())
+    return sorted(vals)
+
+
+def default_scenario() -> Optional[str]:
+    """Best default: a scenario present in AC_MONTHLY (so reserves + cashflow
+    tie), else the most common in AC_ONELINE."""
+    a = _aries()
+    mon = a.get("AC_MONTHLY")
+    if mon is not None and not mon.empty and "SCENARIO" in mon.columns:
+        m = mon["SCENARIO"].dropna()
+        if not m.empty:
+            return str(m.mode().iloc[0])
+    one = a.get("AC_ONELINE")
+    if one is not None and not one.empty and "SCENARIO" in one.columns:
+        o = one["SCENARIO"].dropna()
+        if not o.empty:
+            return str(o.mode().iloc[0])
+    return None
+
+
+def _apply_scenario(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter to the sidebar-selected SCENARIO when the table carries one."""
+    scen = st.session_state.get("aries_scenario")
+    if scen and df is not None and "SCENARIO" in df.columns:
+        return df[df["SCENARIO"].astype(str) == str(scen)]
+    return df
+
+
 def rsvcat_options() -> List[str]:
     prop = get_property()
     if prop is None or "RsvCat" not in prop.columns:
@@ -78,7 +114,7 @@ def get_oneline() -> Optional[pd.DataFrame]:
     one = a.get("AC_ONELINE")
     if one is None or one.empty:
         return None
-    return _join_property(one)
+    return _join_property(_apply_scenario(one))
 
 
 def get_monthly() -> Optional[pd.DataFrame]:
@@ -87,7 +123,7 @@ def get_monthly() -> Optional[pd.DataFrame]:
     mon = a.get("AC_MONTHLY")
     if mon is None or mon.empty:
         return None
-    return _join_property(mon)
+    return _join_property(_apply_scenario(mon))
 
 
 def monthly_guard(st) -> Optional[pd.DataFrame]:
@@ -100,15 +136,22 @@ def monthly_guard(st) -> Optional[pd.DataFrame]:
     a = _aries()
     if not a:
         st.warning("Upload an Aries database in the sidebar."); st.stop()
-    mon = get_monthly()
-    if mon is None:
-        rows = 0 if a.get("AC_MONTHLY") is None else len(a["AC_MONTHLY"])
+    raw = a.get("AC_MONTHLY")
+    if raw is None or raw.empty:
         st.warning(
             "`AC_MONTHLY` is empty in this Aries export, so the monthly "
             "forecast/economics charts can't be drawn. Re-export the database "
             "after running Aries economics with **monthly output** enabled "
             "(the reserves, PV, oneline and historical-production pages still "
-            f"work from AC_ONELINE / AC_PRODUCT). [AC_MONTHLY rows: {rows}]"
+            "work from AC_ONELINE / AC_PRODUCT)."
+        )
+        st.stop()
+    mon = get_monthly()
+    if mon is None or mon.empty:
+        scen = st.session_state.get("aries_scenario")
+        st.warning(
+            f"`AC_MONTHLY` has no rows for the selected scenario "
+            f"(**{scen}**). Pick a scenario with a monthly run in the sidebar."
         )
         st.stop()
     return mon

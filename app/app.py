@@ -83,6 +83,15 @@ def sidebar_uploads():
         st.session_state.setdefault("rsvcat_selection", opts)
         st.sidebar.multiselect("PHDWin RsvCat", opts, key="rsvcat_selection")
     from lib import aries as A
+    scen_opts = A.scenario_options()
+    if scen_opts:
+        default_scen = A.default_scenario()
+        idx = scen_opts.index(default_scen) if default_scen in scen_opts else 0
+        st.session_state.setdefault("aries_scenario", scen_opts[idx])
+        st.sidebar.selectbox("Aries scenario", scen_opts,
+                             index=scen_opts.index(st.session_state["aries_scenario"]),
+                             key="aries_scenario",
+                             help="Reserves and monthly economics are shown for one Aries case.")
     aopts = A.rsvcat_options()
     if aopts:
         st.session_state.setdefault("aries_rsvcat_selection", aopts)
