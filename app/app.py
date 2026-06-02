@@ -14,11 +14,8 @@ from lib import aries_transform as atf
 st.set_page_config(page_title="PHDWin / Aries QC", layout="wide")
 
 
-def sidebar_uploads():
-    st.sidebar.header("Data")
-    store = dl.get_store()
-
-    with st.sidebar.expander("PHDWin database", expanded=False):
+def _phd_uploader(store, expanded):
+    with st.sidebar.expander("PHDWin database", expanded=expanded):
         st.caption("`.accdb`/`.mdb`, a **.zip** of it (if upload network-errors), or a pre-exported `.xlsx`.")
         f = st.file_uploader("PHDWin .accdb / .mdb / .zip / .xlsx",
                              type=["accdb", "mdb", "zip", "xlsx"], key="phd_upload")
@@ -37,7 +34,9 @@ def sidebar_uploads():
             except Exception as e:
                 st.error(f"PHDWin load failed: {e}")
 
-    with st.sidebar.expander("Aries database", expanded=False):
+
+def _aries_uploader(store, expanded):
+    with st.sidebar.expander("Aries database", expanded=expanded):
         st.caption("`.mdb`/`.accdb` or a **.zip** of it. Reads AC_PROPERTY/ONELINE/MONTHLY/PRODUCT.")
         fa = st.file_uploader("Aries .mdb / .accdb / .zip / .xlsx", type=["mdb", "accdb", "zip", "xlsx"], key="aries_upload")
         if fa is not None:
@@ -55,26 +54,27 @@ def sidebar_uploads():
                 st.success(f"Aries tables loaded: {', '.join(sorted(tabs))}")
             except Exception as e:
                 st.error(f"Aries load failed: {e}")
-        st.caption("Add a monthly scenario from xls (fallback if a case isn't in the .mdb):")
-        fm = st.file_uploader("Monthly xls (AC_MONTHLY-format)", type=["xlsx"], key="aries_monthly_xls")
+        st.caption("Add a monthly scenario from xls (a case not already in the .mdb):")
+        fm = st.file_uploader("Monthly xls (AC_MONTHLY / Monthly Summary)", type=["xlsx"], key="aries_monthly_xls")
         scen_name = st.text_input("Scenario name for this monthly xls", value="", key="aries_monthly_scen")
         if fm is not None:
             try:
                 n = dl.append_monthly_scenario(store, fm.getvalue(), scen_name or None)
-                st.success(f"Appended {n:,} monthly rows as scenario "
-                           f"`{scen_name or 'XLS'}`.")
+                st.success(f"Appended {n:,} monthly rows as scenario `{scen_name or 'XLS'}`.")
             except Exception as e:
                 st.error(f"Monthly xls load failed: {e}")
 
-    with st.sidebar.expander("Well headers (CSV) + LOS tie-out (xlsx)", expanded=False):
-        fw = st.file_uploader("Well headers", type=["csv", "xlsx"], key="wh_upload")
+
+def _extras_uploader(store):
+    with st.sidebar.expander("Well headers + LOS tie-out (optional)", expanded=False):
+        fw = st.file_uploader("Well headers (CSV/xlsx)", type=["csv", "xlsx"], key="wh_upload")
         if fw is not None:
             try:
                 store["well_headers"] = dl.load_well_headers(fw.getvalue(), fw.name)
                 st.success(f"Well headers: {len(store['well_headers']):,} rows")
             except Exception as e:
                 st.error(f"Well headers load failed: {e}")
-        fl = st.file_uploader("LOS tie-out xlsx (PowerBI_Long sheet)", type=["xlsx"], key="los_upload")
+        fl = st.file_uploader("LOS tie-out xlsx", type=["xlsx"], key="los_upload")
         if fl is not None:
             try:
                 for k, v in dl.load_los_workbook(fl.getvalue()).items():
@@ -83,42 +83,90 @@ def sidebar_uploads():
             except Exception as e:
                 st.error(f"LOS load failed: {e}")
 
+
+def _clear_data():
+    """Reset the loaded data + uploader widgets so the user can switch source."""
+    st.session_state["store"] = {}
+    for k in ["phd_upload", "aries_upload", "aries_monthly_xls", "aries_monthly_scen",
+              "wh_upload", "los_upload", "rsvcat_selection", "aries_scenarios",
+              "aries_rsvcat_selection", "aries_scn_mode", "chart_date_range"]:
+        st.session_state.pop(k, None)
+
+
+def sidebar_uploads():
+    store = dl.get_store()
+    phd_loaded = ("LseEco" in store) or ("LseInfo" in store)
+    ar = store.get("__aries__") or {}
+    aries_loaded = bool(ar) and (("AC_ONELINE" in ar) or ("AC_MONTHLY" in ar))
+
+    # --- Step 1: data ------------------------------------------------------
+    st.sidebar.header("Step 1 · Data")
+    if not (phd_loaded or aries_loaded):
+        # Nothing loaded yet — offer both database uploaders.
+        _phd_uploader(store, expanded=True)
+        _aries_uploader(store, expanded=True)
+    elif aries_loaded and not phd_loaded:
+        st.sidebar.caption("Aries data loaded.")
+        _aries_uploader(store, expanded=False)
+        with st.sidebar.expander("Use PHDWin instead", expanded=False):
+            st.caption("Loading PHDWin starts a separate workflow.")
+            _phd_uploader(store, expanded=True)
+    elif phd_loaded and not aries_loaded:
+        st.sidebar.caption("PHDWin data loaded.")
+        _phd_uploader(store, expanded=False)
+        with st.sidebar.expander("Use Aries instead", expanded=False):
+            st.caption("Loading Aries starts a separate workflow.")
+            _aries_uploader(store, expanded=True)
+    else:  # both loaded
+        _phd_uploader(store, expanded=False)
+        _aries_uploader(store, expanded=False)
+
+    _extras_uploader(store)
+    if phd_loaded or aries_loaded:
+        st.sidebar.button("Clear data / switch source", on_click=_clear_data, use_container_width=True)
+
     # Derive PowerBI calculated columns for whichever sources are present.
     tf.enrich_store(store)
     atf.enrich_aries_store(store)
 
-    st.sidebar.divider()
-    st.sidebar.header("Reserve Category filter")
-    lse = store.get("LseInfo")
-    if lse is not None and "RsvCat" in lse.columns:
-        opts = sorted(lse["RsvCat"].dropna().unique().tolist())
-        st.session_state.setdefault("rsvcat_selection", opts)
-        st.sidebar.multiselect("PHDWin RsvCat", opts, key="rsvcat_selection")
+    # --- Step 2: filters (source-aware; the other source's controls hide) --
     from lib import aries as A
-    scen_opts = A.scenario_options()
-    if scen_opts:
-        default_scen = A.default_scenario()
-        st.session_state.setdefault("aries_scenarios", [default_scen] if default_scen else scen_opts[:1])
-        st.sidebar.multiselect("Aries scenario(s)", scen_opts, key="aries_scenarios",
-                               help="Pick one case, or two+ to compare. Default is the case "
-                                    "with monthly economics so reserves and cashflow tie.")
-        if len(st.session_state.get("aries_scenarios") or []) > 1:
-            st.session_state.setdefault("aries_scn_mode", "Overlay")
-            st.sidebar.radio("Multi-scenario view", ["Overlay", "Split"], horizontal=True,
-                             key="aries_scn_mode",
-                             help="Overlay = scenarios as series on one chart (line/scatter/box). "
-                                  "Split = a panel per scenario for every chart.")
-    aopts = A.rsvcat_options()
-    if aopts:
-        st.session_state.setdefault("aries_rsvcat_selection", aopts)
-        st.sidebar.multiselect("Aries RsvCat", aopts, key="aries_rsvcat_selection")
+    if phd_loaded or aries_loaded:
+        st.sidebar.divider()
+        st.sidebar.header("Step 2 · Filters")
 
-    chart_options(store)
+    if aries_loaded:
+        scen_opts = A.scenario_options()
+        if scen_opts:
+            default_scen = A.default_scenario()
+            st.session_state.setdefault("aries_scenarios", [default_scen] if default_scen else scen_opts[:1])
+            st.sidebar.multiselect("Scenario(s)", scen_opts, key="aries_scenarios",
+                                   help="Pick one case, or two+ to compare. Default is the case "
+                                        "with monthly economics so reserves and cashflow tie.")
+            if len(st.session_state.get("aries_scenarios") or []) > 1:
+                st.session_state.setdefault("aries_scn_mode", "Overlay")
+                st.sidebar.radio("Multi-scenario view", ["Overlay", "Split"], horizontal=True,
+                                 key="aries_scn_mode",
+                                 help="Overlay = scenarios as series on one chart (line/scatter/box). "
+                                      "Split = a panel per scenario for every chart.")
+        aopts = A.rsvcat_options()
+        if aopts:
+            st.session_state.setdefault("aries_rsvcat_selection", aopts)
+            st.sidebar.multiselect("Reserve category", aopts, key="aries_rsvcat_selection")
+
+    if phd_loaded:
+        lse = store.get("LseInfo")
+        if lse is not None and "RsvCat" in lse.columns:
+            opts = sorted(lse["RsvCat"].dropna().unique().tolist())
+            st.session_state.setdefault("rsvcat_selection", opts)
+            st.sidebar.multiselect("Reserve category", opts, key="rsvcat_selection")
+
+    if phd_loaded or aries_loaded:
+        chart_options(store)
 
     st.sidebar.divider()
-    aries = store.get("__aries__") or {}
     st.sidebar.caption("**Loaded:** " + (", ".join(
-        [k for k in store if not k.startswith("__")] + [f"Aries:{k}" for k in aries]) or "nothing yet"))
+        [k for k in store if not k.startswith("__")] + [f"Aries:{k}" for k in ar]) or "nothing yet"))
 
 
 def _data_date_span(store: dict):
