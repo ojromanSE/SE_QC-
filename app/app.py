@@ -39,11 +39,14 @@ def sidebar_uploads():
 
     with st.sidebar.expander("Aries database", expanded=False):
         st.caption("`.mdb`/`.accdb` or a **.zip** of it. Reads AC_PROPERTY/ONELINE/MONTHLY/PRODUCT.")
-        fa = st.file_uploader("Aries .mdb / .accdb / .zip", type=["mdb", "accdb", "zip"], key="aries_upload")
+        fa = st.file_uploader("Aries .mdb / .accdb / .zip / .xlsx", type=["mdb", "accdb", "zip", "xlsx"], key="aries_upload")
         if fa is not None:
             try:
-                if fa.name.lower().endswith(".zip"):
+                ext = fa.name.lower().rsplit(".", 1)[-1]
+                if ext == "zip":
                     tabs = dl.load_access_zip(fa.getvalue(), fa.name, only_tables=dl.ARIES_NEEDED)
+                elif ext == "xlsx":
+                    tabs = dl.load_phdwin_xlsx(fa.getvalue())  # sheets named AC_PROPERTY/AC_ONELINE/...
                 else:
                     tabs = dl.load_access_db(fa.getvalue(), fa.name, only_tables=dl.ARIES_NEEDED)
                 store["__aries__"] = tabs

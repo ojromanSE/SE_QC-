@@ -41,7 +41,7 @@ Upload from the sidebar — all stored in `st.session_state`:
 | Source | What to upload | Notes |
 |---|---|---|
 | PHDWin | `.mdb` / `.accdb` (preferred) **or** `.xlsx` | Parsed via `mdbtools`. `.accdb` requires mdbtools ≥ 1.0.0 (installed on Streamlit Cloud); if read fails, pre-export to xlsx. xlsx export must have sheets named `LseInfo`, `LseEco`, `MonInfo`. |
-| Aries  | `.mdb` / `.accdb` | Tables loaded into a separate namespace; Aries page is a stub until you share a chart spec. |
+| Aries  | `.mdb` / `.accdb` / `.zip` / `.xlsx` | Reads `AC_PROPERTY`, `AC_ONELINE`, `AC_MONTHLY`, `AC_PRODUCT`. Reserve-category and lease columns are auto-detected (`SIPC_RSV_CAT` / `SE_RSV_CAT` / `RESCAT`; `LEASE_NAME` / `LEASE`), so different client setups load without edits. xlsx must have sheets named after the AC_ tables. |
 | Well headers | `.csv` / `.xlsx` | Must contain surface latitude / longitude columns. |
 | LOS tie-out | `.xlsx` | A `LOS_Data` sheet (`Date, Data, Category, Line Item, LOS Value, LTM, L6M, L3M`) — only `LOS Historical` rows are used — **or** a legacy `PowerBI_Long` sheet (`Date, Category, Line Item, Value`). Both are normalized automatically. |
 

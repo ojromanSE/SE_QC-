@@ -27,18 +27,34 @@ def has_aries() -> bool:
     return bool(a) and "AC_ONELINE" in a and "AC_MONTHLY" in a
 
 
+# Role -> ordered list of candidate AC_PROPERTY source columns. The reserve
+# category and lease-name columns vary by client setup (SIPC_RSV_CAT vs
+# SE_RSV_CAT vs RESCAT; LEASE_NAME vs LEASE), so resolve them by first match.
+_PROP_ROLES = {
+    "PROPNUM": ["PROPNUM"],
+    "LSE_NAME": ["LEASE_NAME", "LEASE"],
+    "OPER": ["OPERATOR"],
+    "County": ["COUNTY"],
+    "RsvCat": ["SIPC_RSV_CAT", "SE_RSV_CAT", "RESCAT", "RSV_CAT"],
+    "API": ["API", "API10", "API14", "UWI"],
+    "Latitude": ["LATITUDE", "S_LAT"],
+    "Longitude": ["LONGITUDE", "S_LON"],
+    "WI": ["WI"],
+    "NRI": ["NRI"],
+}
+
+
 def get_property() -> Optional[pd.DataFrame]:
     a = _aries()
     prop = a.get("AC_PROPERTY")
     if prop is None or prop.empty:
         return None
-    cols = {
-        "PROPNUM": "PROPNUM", "LEASE_NAME": "LSE_NAME", "OPERATOR": "OPER",
-        "COUNTY": "County", "SE_RSV_CAT": "RsvCat", "API": "API",
-        "LATITUDE": "Latitude", "LONGITUDE": "Longitude", "WI": "WI", "NRI": "NRI",
-    }
-    keep = {k: v for k, v in cols.items() if k in prop.columns}
-    out = prop[list(keep)].rename(columns=keep)
+    rename = {}
+    for role, cands in _PROP_ROLES.items():
+        src = next((c for c in cands if c in prop.columns), None)
+        if src is not None and src not in rename:
+            rename[src] = role
+    out = prop[list(rename)].rename(columns=rename)
     return out
 
 
