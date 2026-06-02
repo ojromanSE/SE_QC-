@@ -21,9 +21,10 @@ if pv_cols:
     pv = e.groupby("RsvCat", dropna=False)[pv_cols].sum().reset_index()
     charts.show_table(pv, money_cols=pv_cols)
 
+pv_sel = charts.pv_select(e, "phd_pv_ressum") or "PV10 ($)"
 c1, c2 = st.columns(2)
 c3, c4 = st.columns(2)
-with c1: charts.pie(e, "RsvCat", "PV10 ($)", title="PV10 ($) by RsvCat")
+with c1: charts.pie(e, "RsvCat", pv_sel, title=f"{pv_sel} by RsvCat")
 with c2: charts.pie(e, "RsvCat", "Net Oil (Bbl)", title="Net Oil by RsvCat")
 with c3:
     if "Net Gas (Mcf/d)" in e.columns: charts.pie(e, "RsvCat", "Net Gas (Mcf/d)", "Net Gas (Mcf/d) by RsvCat")

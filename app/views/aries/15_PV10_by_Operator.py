@@ -1,15 +1,16 @@
 import streamlit as st
 from lib import charts, aries as A
 
-st.title("Aries · PV10 by Operator")
+st.title("Aries · PV by Operator")
 one = A.get_oneline()
 if one is None:
     st.warning("Upload an Aries database (needs AC_ONELINE)."); st.stop()
 sel = st.session_state.get("aries_rsvcat_selection") or []
 e = A.apply_rsvcat(one, sel)
-if "OPER" in e.columns and "PV10 ($)" in e.columns:
-    charts.treemap(e, ["OPER"], "PV10 ($)", "PV10 ($) by Operator")
-    charts.show_table(e.groupby("OPER")["PV10 ($)"].sum().reset_index().sort_values("PV10 ($)", ascending=False),
-                      money_cols=["PV10 ($)"])
+pv = charts.pv_select(e, "aries_pv_oper")
+if "OPER" in e.columns and pv:
+    charts.treemap(e, ["OPER"], pv, f"{pv} by Operator")
+    charts.show_table(e.groupby("OPER")[pv].sum().reset_index().sort_values(pv, ascending=False),
+                      money_cols=[pv])
 else:
-    st.error("Need OPER and PV10 ($).")
+    st.error("Need OPER and a PV column.")

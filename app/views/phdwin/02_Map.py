@@ -26,23 +26,24 @@ if not slat or not slon:
 
 df = wh.copy()
 
-# Optional: size well heads by PV10 joined on API10
+# Optional: size well heads by a selectable PV joined on API10
 size_col = None
 eco = model.get_lse_eco(); info = model.get_lse_info()
+pvcol = charts.pv_select(eco, "phd_pv_map") if eco is not None else None
 api_wh = next((c for c in wh.columns if c.upper() in ("API10", "API12", "API14", "API")), None)
 info_api = next((c for c in (info.columns if info is not None else []) if c.upper().startswith("API")), None)
-if eco is not None and info is not None and api_wh and info_api and "PV10 ($)" in eco.columns and "Lse_Id" in eco.columns:
+if eco is not None and info is not None and api_wh and info_api and pvcol and "Lse_Id" in eco.columns:
     sel = st.session_state.get("rsvcat_selection") or []
-    pv = apply_rsvcat(eco, sel).groupby("Lse_Id", as_index=False)["PV10 ($)"].sum()
+    pv = apply_rsvcat(eco, sel).groupby("Lse_Id", as_index=False)[pvcol].sum()
     pv = pv.merge(info[["Lse_Id", info_api]], on="Lse_Id", how="left")
     pv["__api10"] = model.normalize_api(pv[info_api])
     df["__api10"] = model.normalize_api(df[api_wh])
-    agg = pv.groupby("__api10", as_index=False)["PV10 ($)"].sum()
+    agg = pv.groupby("__api10", as_index=False)[pvcol].sum()
     df = df.merge(agg, on="__api10", how="left")
-    if df["PV10 ($)"].notna().any():
-        size_col = "PV10 ($)"
+    if df[pvcol].notna().any():
+        size_col = pvcol
 
 hover = next((c for c in ["Well Name", "Lease Name", "API14", "API10"] if c in df.columns), None)
 st.caption("Horizontal/deviated wells are drawn surface→bottom-hole; vertical wells as a point. "
-           "Marker size/color = PV10 when it can be matched by API.")
+           "Marker size/color = the selected PV when it can be matched by API.")
 charts.well_map(df, slat, slon, blat, blon, hover=hover, size=size_col, title="Wells")

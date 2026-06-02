@@ -102,6 +102,25 @@ def _split_panels(render_one, df, scns, base_key, title):
             render_one(df[df["SCENARIO"].astype(str) == s], f"{base_key}_{s}", f"{title} — {s}")
 
 
+def available_pv_columns(df: pd.DataFrame) -> List[str]:
+    """PV columns present in a frame (e.g. 'PV10 ($)'), ordered by discount rate."""
+    if df is None:
+        return []
+    pvs = [c for c in df.columns if re.fullmatch(r"PV\d+ \(\$\)", str(c))]
+    return sorted(pvs, key=lambda c: int(re.search(r"PV(\d+)", c).group(1)))
+
+
+def pv_select(df: pd.DataFrame, key: str, default: str = "PV10 ($)", label: str = "PV measure") -> Optional[str]:
+    """Per-page PV picker. Lists the PV columns actually present in `df` and
+    returns the chosen one (default PV10 when available). Returns None if the
+    frame has no PV columns."""
+    opts = available_pv_columns(df)
+    if not opts:
+        return None
+    idx = opts.index(default) if default in opts else 0
+    return st.selectbox(label, opts, index=idx, key=f"pv_{key}")
+
+
 def fmt_int(s: pd.Series) -> pd.Series:
     return s.map(lambda v: "" if pd.isna(v) else f"{v:,.0f}")
 
