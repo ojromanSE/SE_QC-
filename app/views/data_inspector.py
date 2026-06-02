@@ -24,6 +24,14 @@ st.dataframe(summary, hide_index=True, use_container_width=True)
 aries = store.get("__aries__")
 if aries:
     st.caption(f"Aries tables loaded (separate namespace): {len(aries)}")
+    mon = aries.get("AC_MONTHLY")
+    if mon is not None and not mon.empty and "SCENARIO" in mon.columns:
+        st.markdown("**AC_MONTHLY scenarios** (source: db = database, xls = appended monthly xls)")
+        grp = mon.copy()
+        grp["source"] = grp["__src"] if "__src" in grp.columns else "db"
+        brk = (grp.groupby(["SCENARIO", "source"]).size()
+               .reset_index(name="rows").sort_values(["SCENARIO", "source"]))
+        st.dataframe(brk, hide_index=True, use_container_width=True)
 
 EXPECTED = {
     "LseInfo": ["Lse_Id", "LSE_NAME", "RsvCat", "OPER", "County", "WrkInt", "RevInt"],

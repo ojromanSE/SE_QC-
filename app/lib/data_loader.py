@@ -211,16 +211,31 @@ def append_monthly_scenario(store: dict, file_bytes: bytes, scenario: Optional[s
     # neg cols, Prod Date, Year, ...).
     from . import aries_transform as _at  # local import to avoid cycle
     new = _at.enrich_monthly(new)
+    new["__src"] = "xls"  # provenance marker so re-appends only touch xls rows
 
     aries = store.setdefault("__aries__", {})
     existing = aries.get("AC_MONTHLY")
-    if existing is not None and not existing.empty:
-        scns = set(new["SCENARIO"].astype(str).unique())
-        if "SCENARIO" in existing.columns:
-            keep = existing[~existing["SCENARIO"].astype(str).isin(scns)]
-        else:
-            keep = existing
+    scns = set(new["SCENARIO"].astype(str).unique())
+    if existing is not None and not existing.empty and "SCENARIO" in existing.columns:
+        src = existing["__src"] if "__src" in existing.columns else pd.Series("db", index=existing.index)
+        # Never overwrite a scenario that came from the database (richer per-well data).
+        db_collision = sorted(
+            existing.loc[existing["SCENARIO"].astype(str).isin(scns) & (src != "xls"), "SCENARIO"]
+            .astype(str).unique()
+        )
+        if db_collision:
+            raise ValueError(
+                f"Scenario(s) {', '.join(db_collision)} already exist in the loaded "
+                "database (per-well AC_MONTHLY). The xls would replace that richer "
+                "data with a pre-aggregated rollup, so it was not loaded. Give this "
+                "monthly xls a different scenario name (e.g. a case not in the .mdb)."
+            )
+        # Replace only prior xls rows for the same scenario name; keep everything else.
+        drop = existing["SCENARIO"].astype(str).isin(scns) & (src == "xls")
+        keep = existing[~drop]
         aries["AC_MONTHLY"] = pd.concat([keep, new], ignore_index=True)
+    elif existing is not None and not existing.empty:
+        aries["AC_MONTHLY"] = pd.concat([existing, new], ignore_index=True)
     else:
         aries["AC_MONTHLY"] = new
     return len(new)

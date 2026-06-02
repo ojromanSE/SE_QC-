@@ -49,7 +49,9 @@ def sidebar_uploads():
                     tabs = dl.load_phdwin_xlsx(fa.getvalue())  # sheets named AC_PROPERTY/AC_ONELINE/...
                 else:
                     tabs = dl.load_access_db(fa.getvalue(), fa.name, only_tables=dl.ARIES_NEEDED)
-                store["__aries__"] = tabs
+                # Copy out of the @st.cache_data result so enrichment / monthly-xls
+                # appends don't mutate the cached object across reruns.
+                store["__aries__"] = {k: v.copy() for k, v in tabs.items()}
                 st.success(f"Aries tables loaded: {', '.join(sorted(tabs))}")
             except Exception as e:
                 st.error(f"Aries load failed: {e}")
