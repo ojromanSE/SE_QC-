@@ -159,7 +159,25 @@ def render_top_filters(store: dict, phd_loaded: bool, aries_loaded: bool):
         return
     from lib import aries as A
 
+    # Pin the filter bar to the top of the page while scrolling. We tag the
+    # bordered container with a sentinel span and make its wrapper sticky.
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(span#top-filters-anchor) {
+            position: sticky;
+            top: 3.25rem;
+            z-index: 999;
+            background-color: var(--background-color, white);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     with st.container(border=True):
+        st.markdown('<span id="top-filters-anchor"></span>', unsafe_allow_html=True)
         widgets = []  # (label-less) render callables, laid out in equal columns
 
         if aries_loaded:
