@@ -59,10 +59,22 @@ def get_property() -> Optional[pd.DataFrame]:
 
 
 def _join_property(df: pd.DataFrame) -> pd.DataFrame:
+    """Left-merge AC_PROPERTY onto a frame by PROPNUM.
+
+    Coalesces overlapping columns after the merge: if the input already carries
+    a value (e.g. an aggregated Monthly Summary row that has RsvCat set but no
+    PROPNUM, alongside per-well .mdb rows that need RsvCat from the property
+    join), keep the row's own value; otherwise fall back to the joined one.
+    """
     prop = get_property()
-    if prop is not None and "PROPNUM" in df.columns and "PROPNUM" in prop.columns:
-        df = df.merge(prop, on="PROPNUM", how="left", suffixes=("", "_p"))
-    return df
+    if prop is None or "PROPNUM" not in df.columns or "PROPNUM" not in prop.columns:
+        return df
+    merged = df.merge(prop, on="PROPNUM", how="left", suffixes=("", "_p"))
+    for c in [c for c in merged.columns if c.endswith("_p") and c[:-2] in merged.columns]:
+        base = c[:-2]
+        merged[base] = merged[base].where(merged[base].notna(), merged[c])
+        merged.drop(columns=[c], inplace=True)
+    return merged
 
 
 def scenario_options() -> List[str]:
