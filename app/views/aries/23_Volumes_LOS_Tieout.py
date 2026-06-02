@@ -7,7 +7,8 @@ mon = A.get_monthly()
 if los is None:
     st.warning("Upload the LOS tie-out workbook in the sidebar (LOS_Data or PowerBI_Long sheet)."); st.stop()
 if mon is None:
-    st.warning("Upload an Aries database (needs AC_MONTHLY)."); st.stop()
+    st.warning("`AC_MONTHLY` is empty in this Aries export, so there's no calculated "
+               "monthly stream to tie out against. Re-export after an Aries monthly run."); st.stop()
 sel = st.session_state.get("aries_rsvcat_selection") or []
 e = A.apply_rsvcat(mon, sel)
 

@@ -90,6 +90,30 @@ def get_monthly() -> Optional[pd.DataFrame]:
     return _join_property(mon)
 
 
+def monthly_guard(st) -> Optional[pd.DataFrame]:
+    """Return enriched AC_MONTHLY, or render an accurate stop-message.
+
+    Distinguishes "no Aries database loaded" from "AC_MONTHLY is present but
+    empty" — the latter happens when the export was taken before an Aries
+    monthly economic run, so the forecast/cash-flow stream isn't in the file.
+    """
+    a = _aries()
+    if not a:
+        st.warning("Upload an Aries database in the sidebar."); st.stop()
+    mon = get_monthly()
+    if mon is None:
+        rows = 0 if a.get("AC_MONTHLY") is None else len(a["AC_MONTHLY"])
+        st.warning(
+            "`AC_MONTHLY` is empty in this Aries export, so the monthly "
+            "forecast/economics charts can't be drawn. Re-export the database "
+            "after running Aries economics with **monthly output** enabled "
+            "(the reserves, PV, oneline and historical-production pages still "
+            f"work from AC_ONELINE / AC_PRODUCT). [AC_MONTHLY rows: {rows}]"
+        )
+        st.stop()
+    return mon
+
+
 def get_product() -> Optional[pd.DataFrame]:
     ensure_enriched()
     a = _aries()

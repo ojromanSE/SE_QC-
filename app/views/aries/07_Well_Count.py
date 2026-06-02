@@ -3,9 +3,7 @@ import plotly.express as px
 from lib import aries as A, charts
 
 st.title("Aries · Well Count")
-mon = A.get_monthly()
-if mon is None:
-    st.warning("Upload an Aries database (needs AC_MONTHLY)."); st.stop()
+mon = A.monthly_guard(st)
 sel = st.session_state.get("aries_rsvcat_selection") or []
 e = A.apply_rsvcat(mon, sel)
 if "PROPNUM" not in e.columns or "Prod Date" not in e.columns:
