@@ -31,9 +31,17 @@ reserves and cashflow tie) or two+ to compare. With two+ selected, a
 - **Split** — a panel per scenario for every chart type.
 
 A second scenario's monthly stream can come from the database (re-export with
-that case's monthly run) or from a **monthly xls** appended in the sidebar
-(sheet `AC_MONTHLY` with PROPNUM, OUTDATE and the Aries S-codes; the scenario
-name you type is applied).
+that case's monthly run) or from a **monthly xls** appended in the sidebar.
+Two xls layouts are auto-detected:
+
+- **Raw `AC_MONTHLY`** — sheet `AC_MONTHLY` with Aries S-codes plus PROPNUM and
+  OUTDATE. Per-well, same shape as the database table.
+- **Monthly Summary** — sheet `Monthly Summary` with friendly columns
+  (`Net Oil (Mbbl)`, `Total Revenue ($)`, ...) and `SE_RSV_CAT` + `Date`.
+  Volumes in Mbbl/MMcf are scaled to Bbl/Mcf and derived columns (Net
+  Equivalent (Boe), Opex ($/Boe), neg cols, Year, ...) are computed
+  automatically so the rows line up with the database.
+  Pre-aggregated, so per-lease charts show one combined series for this case.
 
 ### Chart options
 

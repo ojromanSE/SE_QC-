@@ -165,34 +165,105 @@ def load_phdwin_xlsx(file_bytes: bytes) -> Dict[str, pd.DataFrame]:
 
 
 def append_monthly_scenario(store: dict, file_bytes: bytes, scenario: Optional[str]) -> int:
-    """Append a monthly workbook into __aries__['AC_MONTHLY'] as a new scenario.
+    """Append a monthly scenario into __aries__['AC_MONTHLY'].
 
-    The workbook should contain a sheet named `AC_MONTHLY` (raw Aries S-codes,
-    like the database table) or the first sheet is used. It must have PROPNUM,
-    OUTDATE and the S-codes; SCENARIO is set from the `scenario` argument (or
-    an existing SCENARIO column is kept). Returns the number of rows appended.
+    Two xls layouts are accepted (auto-detected):
+
+    * **Raw AC_MONTHLY format** — a sheet with Aries S-code columns
+      (`S370`, `S800`, ...) plus `PROPNUM` + `OUTDATE`. Per-well, identical
+      to what the database table holds.
+    * **Monthly Summary format** — the pre-aggregated rollup report (sheet
+      `Monthly Summary`) with friendly columns (`Net Oil (Mbbl)`,
+      `Total Revenue ($)`, ...) and `SE_RSV_CAT` + `Date`. Volumes in Mbbl/MMcf
+      are scaled to Bbl/Mcf so they line up with the database AC_MONTHLY.
+
+    Returns the number of rows appended.
     """
     xl = pd.ExcelFile(io.BytesIO(file_bytes))
-    sheet = "AC_MONTHLY" if "AC_MONTHLY" in xl.sheet_names else xl.sheet_names[0]
-    new = pd.read_excel(xl, sheet_name=sheet)
-    if "PROPNUM" not in new.columns or "OUTDATE" not in new.columns:
-        raise ValueError("Monthly xls needs at least PROPNUM and OUTDATE columns "
-                         "(plus the Aries S-code value columns).")
+    if "AC_MONTHLY" in xl.sheet_names:
+        new = pd.read_excel(xl, sheet_name="AC_MONTHLY")
+    elif "Monthly Summary" in xl.sheet_names:
+        new = pd.read_excel(xl, sheet_name="Monthly Summary")
+    else:
+        new = pd.read_excel(xl, sheet_name=xl.sheet_names[0])
+
+    cols = set(new.columns)
+    # Format detection
+    if "PROPNUM" in cols and "OUTDATE" in cols:
+        pass  # raw AC_MONTHLY path -- already in the expected shape
+    elif {"SE_RSV_CAT", "Date"}.issubset(cols) and any(c.endswith("(Mbbl)") for c in cols):
+        new = _ingest_monthly_summary(new)
+    else:
+        raise ValueError(
+            "Unsupported monthly xls layout. Use either a sheet named "
+            "`AC_MONTHLY` with Aries S-codes (PROPNUM + OUTDATE), or a "
+            "`Monthly Summary` sheet (SE_RSV_CAT + Date + friendly columns)."
+        )
+
     if scenario:
         new["SCENARIO"] = scenario
     elif "SCENARIO" not in new.columns:
         new["SCENARIO"] = "XLS"
+
+    # Enrich the new rows in isolation: the store-level guard skips re-running
+    # enrich_monthly when AC_MONTHLY is already enriched, so appended rows
+    # would otherwise miss derived columns (Net Equivalent (Boe), Opex ($/Boe),
+    # neg cols, Prod Date, Year, ...).
+    from . import aries_transform as _at  # local import to avoid cycle
+    new = _at.enrich_monthly(new)
+
     aries = store.setdefault("__aries__", {})
     existing = aries.get("AC_MONTHLY")
     if existing is not None and not existing.empty:
-        # drop any prior rows for the same scenario(s), then concat
         scns = set(new["SCENARIO"].astype(str).unique())
-        keep = existing[~existing.get("SCENARIO", pd.Series(index=existing.index)).astype(str).isin(scns)] \
-            if "SCENARIO" in existing.columns else existing
+        if "SCENARIO" in existing.columns:
+            keep = existing[~existing["SCENARIO"].astype(str).isin(scns)]
+        else:
+            keep = existing
         aries["AC_MONTHLY"] = pd.concat([keep, new], ignore_index=True)
     else:
         aries["AC_MONTHLY"] = new
     return len(new)
+
+
+_MS_VOLUME_RENAMES = {
+    "Gross Oil (Mbbl)": ("Gross Oil (Bbl)", 1000),
+    "Gross Gas (MMcf)": ("Gross Gas (Mcf)", 1000),
+    "Gross CND (Mbbl)": ("Gross CND (Bbl)", 1000),
+    "Gross NGL (Mbbl)": ("Gross NGL (Bbl)", 1000),
+    "Gross Water (Mbbl)": ("Gross Water (Bbl)", 1000),
+    "Net Oil (Mbbl)": ("Net Oil (Bbl)", 1000),
+    "Net Gas (MMcf)": ("Net Gas (Mcf)", 1000),
+    "Net CND (Mbbl)": ("Net CND (Bbl)", 1000),
+    "Net NGL (Mbbl)": ("Net NGL (Bbl)", 1000),
+    "Net Water (Mbbl)": ("Net Water (Bbl)", 1000),
+}
+_MS_PRICE_RENAMES = {
+    "Oil Price ($)": "Oil Price ($/bbl)",
+    "Gas Price ($)": "Gas Price ($/Mcf)",
+    "NGL Price ($)": "NGL Price ($/bbl)",
+    "Gas Transport Cost ($)": "Gas Transportation Cost ($)",
+}
+
+
+def _ingest_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize a Monthly Summary sheet into AC_MONTHLY shape.
+
+    The Monthly Summary is pre-aggregated by SE_RSV_CAT × Date with friendly
+    column names. Convert Mbbl → Bbl, MMcf → Mcf, align column names to what
+    aries_transform expects, and stamp Prod Date / Year / RsvCat / OUTDATE.
+    """
+    out = df.copy()
+    for src, (dst, scale) in _MS_VOLUME_RENAMES.items():
+        if src in out.columns:
+            out[dst] = pd.to_numeric(out[src], errors="coerce") * scale
+            out.drop(columns=[src], inplace=True)
+    out = out.rename(columns=_MS_PRICE_RENAMES)
+    out = out.rename(columns={"SE_RSV_CAT": "RsvCat", "Date": "OUTDATE"})
+    out["OUTDATE"] = pd.to_datetime(out["OUTDATE"], errors="coerce")
+    out["Prod Date"] = out["OUTDATE"]
+    out["Year"] = out["OUTDATE"].dt.year
+    return out
 
 
 @st.cache_data(show_spinner=False)
