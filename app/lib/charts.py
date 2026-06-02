@@ -202,6 +202,32 @@ def line(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, title: s
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
+def weighted_line(df: pd.DataFrame, x: str, num: str, den: str, title: str = "", key: str = ""):
+    """Line of a volume-weighted ratio = sum(num) / sum(den) per x.
+
+    Use for realized prices and other per-unit metrics where summing the raw
+    per-row ratio would be wrong (a price is Σrevenue / Σvolume, not Σprice).
+    Supports scenario overlay/split and the per-plot scale/date controls.
+    """
+    if df.empty or x not in df.columns or num not in df.columns or den not in df.columns:
+        st.info("No data."); return
+    ck = _ckey(key, title)
+    scns, mode = _scn_state(df)
+    if scns and mode == "Split":
+        _split_panels(lambda d, k, t: weighted_line(d, x, num, den, t, k), df, scns, ck, title); return
+    overlay = bool(scns)
+    ctrl = _plot_controls(ck, df=df, date_col=x)
+    df = _clip(df, x, ctrl["range"])
+    by = [x] + (["SCENARIO"] if overlay else [])
+    g = df.groupby(by, dropna=False)[[num, den]].sum().reset_index()
+    g["__ratio"] = g[num] / g[den].replace(0, pd.NA)
+    g = g.dropna(subset=["__ratio"]).sort_values(x)
+    fig = px.line(g, x=x, y="__ratio", color="SCENARIO" if overlay else None, title=title)
+    fig.update_yaxes(type=ctrl["scale"])
+    fig.update_layout(yaxis_title=title or "Realized price")
+    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+
+
 def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: str, title: str = "", key: str = ""):
     """Cash-Flow page: stacked bars for components, line for BFIT CF on secondary axis."""
     cols = [c for c in bar_ys if c in df.columns] + ([line_y] if line_y in df.columns else [])
