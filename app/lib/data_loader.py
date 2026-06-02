@@ -164,6 +164,37 @@ def load_phdwin_xlsx(file_bytes: bytes) -> Dict[str, pd.DataFrame]:
     return {s: pd.read_excel(xl, sheet_name=s) for s in xl.sheet_names}
 
 
+def append_monthly_scenario(store: dict, file_bytes: bytes, scenario: Optional[str]) -> int:
+    """Append a monthly workbook into __aries__['AC_MONTHLY'] as a new scenario.
+
+    The workbook should contain a sheet named `AC_MONTHLY` (raw Aries S-codes,
+    like the database table) or the first sheet is used. It must have PROPNUM,
+    OUTDATE and the S-codes; SCENARIO is set from the `scenario` argument (or
+    an existing SCENARIO column is kept). Returns the number of rows appended.
+    """
+    xl = pd.ExcelFile(io.BytesIO(file_bytes))
+    sheet = "AC_MONTHLY" if "AC_MONTHLY" in xl.sheet_names else xl.sheet_names[0]
+    new = pd.read_excel(xl, sheet_name=sheet)
+    if "PROPNUM" not in new.columns or "OUTDATE" not in new.columns:
+        raise ValueError("Monthly xls needs at least PROPNUM and OUTDATE columns "
+                         "(plus the Aries S-code value columns).")
+    if scenario:
+        new["SCENARIO"] = scenario
+    elif "SCENARIO" not in new.columns:
+        new["SCENARIO"] = "XLS"
+    aries = store.setdefault("__aries__", {})
+    existing = aries.get("AC_MONTHLY")
+    if existing is not None and not existing.empty:
+        # drop any prior rows for the same scenario(s), then concat
+        scns = set(new["SCENARIO"].astype(str).unique())
+        keep = existing[~existing.get("SCENARIO", pd.Series(index=existing.index)).astype(str).isin(scns)] \
+            if "SCENARIO" in existing.columns else existing
+        aries["AC_MONTHLY"] = pd.concat([keep, new], ignore_index=True)
+    else:
+        aries["AC_MONTHLY"] = new
+    return len(new)
+
+
 @st.cache_data(show_spinner=False)
 def load_well_headers(file_bytes: bytes, filename: str) -> pd.DataFrame:
     if filename.lower().endswith(".csv"):

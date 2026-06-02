@@ -53,6 +53,16 @@ def sidebar_uploads():
                 st.success(f"Aries tables loaded: {', '.join(sorted(tabs))}")
             except Exception as e:
                 st.error(f"Aries load failed: {e}")
+        st.caption("Add a monthly scenario from xls (fallback if a case isn't in the .mdb):")
+        fm = st.file_uploader("Monthly xls (AC_MONTHLY-format)", type=["xlsx"], key="aries_monthly_xls")
+        scen_name = st.text_input("Scenario name for this monthly xls", value="", key="aries_monthly_scen")
+        if fm is not None:
+            try:
+                n = dl.append_monthly_scenario(store, fm.getvalue(), scen_name or None)
+                st.success(f"Appended {n:,} monthly rows as scenario "
+                           f"`{scen_name or 'XLS'}`.")
+            except Exception as e:
+                st.error(f"Monthly xls load failed: {e}")
 
     with st.sidebar.expander("Well headers (CSV) + LOS tie-out (xlsx)", expanded=False):
         fw = st.file_uploader("Well headers", type=["csv", "xlsx"], key="wh_upload")
@@ -86,12 +96,16 @@ def sidebar_uploads():
     scen_opts = A.scenario_options()
     if scen_opts:
         default_scen = A.default_scenario()
-        idx = scen_opts.index(default_scen) if default_scen in scen_opts else 0
-        st.session_state.setdefault("aries_scenario", scen_opts[idx])
-        st.sidebar.selectbox("Aries scenario", scen_opts,
-                             index=scen_opts.index(st.session_state["aries_scenario"]),
-                             key="aries_scenario",
-                             help="Reserves and monthly economics are shown for one Aries case.")
+        st.session_state.setdefault("aries_scenarios", [default_scen] if default_scen else scen_opts[:1])
+        st.sidebar.multiselect("Aries scenario(s)", scen_opts, key="aries_scenarios",
+                               help="Pick one case, or two+ to compare. Default is the case "
+                                    "with monthly economics so reserves and cashflow tie.")
+        if len(st.session_state.get("aries_scenarios") or []) > 1:
+            st.session_state.setdefault("aries_scn_mode", "Overlay")
+            st.sidebar.radio("Multi-scenario view", ["Overlay", "Split"], horizontal=True,
+                             key="aries_scn_mode",
+                             help="Overlay = scenarios as series on one chart (line/scatter/box). "
+                                  "Split = a panel per scenario for every chart.")
     aopts = A.rsvcat_options()
     if aopts:
         st.session_state.setdefault("aries_rsvcat_selection", aopts)

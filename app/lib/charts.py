@@ -78,6 +78,30 @@ def _plot_controls(ckey, *, df=None, date_col=None, series_values=None, series_l
     return res
 
 
+def _scn_state(df):
+    """Multi-scenario context for a frame carrying a SCENARIO column.
+
+    Returns (scenarios, mode) when >1 selected scenario is present, else
+    (None, None). `mode` is 'Overlay' or 'Split' from the sidebar.
+    """
+    sel = st.session_state.get("aries_scenarios") or []
+    if df is None or "SCENARIO" not in getattr(df, "columns", []):
+        return None, None
+    present = [s for s in sel if s in set(df["SCENARIO"].astype(str).unique())]
+    if len(present) <= 1:
+        return None, None
+    return present, st.session_state.get("aries_scn_mode", "Overlay")
+
+
+def _split_panels(render_one, df, scns, base_key, title):
+    """Render `render_one(sub_df, key, title)` once per scenario in columns."""
+    cols = st.columns(len(scns))
+    for c, s in zip(cols, scns):
+        with c:
+            st.markdown(f"**{s}**")
+            render_one(df[df["SCENARIO"].astype(str) == s], f"{base_key}_{s}", f"{title} — {s}")
+
+
 def fmt_int(s: pd.Series) -> pd.Series:
     return s.map(lambda v: "" if pd.isna(v) else f"{v:,.0f}")
 
@@ -95,14 +119,18 @@ def show_table(df: pd.DataFrame, *, money_cols: Iterable[str] = (), int_cols: It
     st.dataframe(show, height=height, use_container_width=True, hide_index=True)
 
 
-def pie(df: pd.DataFrame, names: str, values: str, title: str = ""):
+def pie(df: pd.DataFrame, names: str, values: str, title: str = "", key: str = ""):
     if df.empty or names not in df.columns or values not in df.columns:
         st.info(f"No data for pie ({names} vs {values}).")
         return
+    ck = _ckey(key, title)
+    scns, _ = _scn_state(df)
+    if scns:
+        _split_panels(lambda d, k, t: pie(d, names, values, t, k), df, scns, ck, title); return
     g = df.groupby(names, dropna=False)[values].sum().reset_index()
     fig = px.pie(g, names=names, values=values, title=title, hole=0.0)
     fig.update_traces(textposition="inside", textinfo="percent+label")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
 def grouped_column(df: pd.DataFrame, x: str, ys: List[str], title: str = "", barmode: str = "group", key: str = ""):
@@ -112,6 +140,9 @@ def grouped_column(df: pd.DataFrame, x: str, ys: List[str], title: str = "", bar
     if not cols:
         st.info(f"Columns not found: {ys}"); return
     ck = _ckey(key, title)
+    scns, _ = _scn_state(df)
+    if scns:  # multi-scenario: one panel per scenario (overlay of multi-bar is unreadable)
+        _split_panels(lambda d, k, t: grouped_column(d, x, ys, t, barmode, k), df, scns, ck, title); return
     ctrl = _plot_controls(ck, df=df, date_col=x)
     df = _clip(df, x, ctrl["range"])
     g = df.groupby(x, dropna=False)[cols].sum().reset_index().sort_values(x)
@@ -127,6 +158,9 @@ def stacked_column(df: pd.DataFrame, x: str, y: str, color: str, title: str = ""
     if df.empty or any(c not in df.columns for c in [x, y, color]):
         st.info("No data."); return
     ck = _ckey(key, title)
+    scns, _ = _scn_state(df)
+    if scns:
+        _split_panels(lambda d, k, t: stacked_column(d, x, y, color, t, k), df, scns, ck, title); return
     ctrl = _plot_controls(ck, df=df, date_col=x)
     df = _clip(df, x, ctrl["range"])
     g = df.groupby([x, color], dropna=False)[y].sum().reset_index().sort_values(x)
@@ -140,6 +174,10 @@ def line(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, title: s
     if df.empty or x not in df.columns or y not in df.columns:
         st.info("No data."); return
     ck = _ckey(key, title)
+    scns, mode = _scn_state(df)
+    if scns and mode == "Split":
+        _split_panels(lambda d, k, t: line(d, x, y, color, t, k), df, scns, ck, title); return
+    overlay = bool(scns)  # Overlay mode with >1 scenario
     has_series = bool(color and color in df.columns)
     svals = sorted(df[color].dropna().astype(str).unique().tolist()) if has_series else None
     ctrl = _plot_controls(ck, df=df, date_col=x, series_values=svals, series_label=color)
@@ -150,9 +188,16 @@ def line(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, title: s
             use_color = None
         elif ctrl["series"] is not None:
             df = df[df[color].astype(str).isin(ctrl["series"])]
-    by = [x] + ([use_color] if use_color else [])
+    # In overlay mode, scenario becomes a series: color if no lease series, else line dash.
+    dash = None
+    if overlay:
+        if use_color:
+            dash = "SCENARIO"
+        else:
+            use_color = "SCENARIO"
+    by = [x] + ([use_color] if use_color else []) + ([dash] if dash else [])
     g = df.groupby(by, dropna=False)[y].sum().reset_index().sort_values(x)
-    fig = px.line(g, x=x, y=y, color=use_color, title=title)
+    fig = px.line(g, x=x, y=y, color=use_color, line_dash=dash, title=title)
     fig.update_yaxes(type=ctrl["scale"])
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
@@ -163,6 +208,9 @@ def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: s
     if df.empty or not cols:
         st.info("No data."); return
     ck = _ckey(key, title)
+    scns, _ = _scn_state(df)
+    if scns:
+        _split_panels(lambda d, k, t: combo_revenue_opex_cf(d, x, bar_ys, line_y, t, k), df, scns, ck, title); return
     ctrl = _plot_controls(ck, df=df, date_col=x)
     df = _clip(df, x, ctrl["range"])
     g = df.groupby(x, dropna=False)[cols].sum().reset_index().sort_values(x)
@@ -182,12 +230,16 @@ def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: s
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
-def treemap(df: pd.DataFrame, path: List[str], values: str, title: str = ""):
+def treemap(df: pd.DataFrame, path: List[str], values: str, title: str = "", key: str = ""):
     if df.empty or values not in df.columns:
         st.info("No data."); return
     cols = [p for p in path if p in df.columns]
     if not cols:
         st.info("No grouping cols."); return
+    ck = _ckey(key, title)
+    scns, _ = _scn_state(df)
+    if scns:
+        _split_panels(lambda dd, k, t: treemap(dd, path, values, t, k), df, scns, ck, title); return
     d = df.copy()
     for c in cols:  # treemaps reject null/blank path labels
         d[c] = d[c].fillna("(blank)").replace("", "(blank)")
@@ -197,19 +249,23 @@ def treemap(df: pd.DataFrame, path: List[str], values: str, title: str = ""):
         st.info("No positive values."); return
     fig = px.treemap(g, path=cols, values=values, title=title)
     fig.update_traces(textinfo="label+value+percent parent")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
 def box_by_group(df: pd.DataFrame, group: str, value: str, sample: Optional[str] = None, title: str = "", key: str = ""):
     if df.empty or group not in df.columns or value not in df.columns:
         st.info("No data."); return
     ck = _ckey(key, title)
+    scns, mode = _scn_state(df)
+    if scns and mode == "Split":
+        _split_panels(lambda d, k, t: box_by_group(d, group, value, sample, t, k), df, scns, ck, title); return
     ctrl = _plot_controls(ck, df=df, date_col=group)
     df = _clip(df, group, ctrl["range"])
-    d = df[[group, value] + ([sample] if sample and sample in df.columns else [])].dropna(subset=[value])
+    keep = [group, value] + ([sample] if sample and sample in df.columns else []) + (["SCENARIO"] if scns else [])
+    d = df[keep].dropna(subset=[value])
     if d.empty:
         st.info("No data."); return
-    fig = px.box(d, x=group, y=value, points="outliers", title=title,
+    fig = px.box(d, x=group, y=value, color="SCENARIO" if scns else None, points="outliers", title=title,
                  hover_data=[sample] if sample and sample in d.columns else None)
     fig.update_yaxes(type=ctrl["scale"])
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
@@ -233,6 +289,9 @@ def scatter(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, hover
     if df.empty or x not in df.columns or y not in df.columns:
         st.info("No data."); return
     ck = _ckey(key, title)
+    scns, mode = _scn_state(df)
+    if scns and mode == "Split":
+        _split_panels(lambda d, k, t: scatter(d, x, y, color, hover, t, k), df, scns, ck, title); return
     has_series = bool(color and color in df.columns)
     svals = sorted(df[color].dropna().astype(str).unique().tolist()) if has_series else None
     ctrl = _plot_controls(ck, series_values=svals, series_label=color)
@@ -243,7 +302,8 @@ def scatter(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, hover
             use_color = None
         elif ctrl["series"] is not None:
             d = d[d[color].astype(str).isin(ctrl["series"])]
-    fig = px.scatter(d, x=x, y=y, color=use_color,
+    symbol = "SCENARIO" if scns else None  # overlay: distinguish scenarios by marker symbol
+    fig = px.scatter(d, x=x, y=y, color=use_color, symbol=symbol,
                      hover_name=hover if hover and hover in d.columns else None, title=title)
     fig.update_yaxes(type=ctrl["scale"])
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")

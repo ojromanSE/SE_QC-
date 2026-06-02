@@ -93,11 +93,16 @@ def default_scenario() -> Optional[str]:
     return None
 
 
+def selected_scenarios() -> List[str]:
+    """Scenarios chosen in the sidebar (multiselect). Empty => no filter."""
+    return st.session_state.get("aries_scenarios") or []
+
+
 def _apply_scenario(df: pd.DataFrame) -> pd.DataFrame:
-    """Filter to the sidebar-selected SCENARIO when the table carries one."""
-    scen = st.session_state.get("aries_scenario")
-    if scen and df is not None and "SCENARIO" in df.columns:
-        return df[df["SCENARIO"].astype(str) == str(scen)]
+    """Keep only the sidebar-selected SCENARIO(s) when the table carries one."""
+    sel = selected_scenarios()
+    if sel and df is not None and "SCENARIO" in df.columns:
+        return df[df["SCENARIO"].astype(str).isin([str(s) for s in sel])]
     return df
 
 
@@ -148,10 +153,10 @@ def monthly_guard(st) -> Optional[pd.DataFrame]:
         st.stop()
     mon = get_monthly()
     if mon is None or mon.empty:
-        scen = st.session_state.get("aries_scenario")
+        sel = ", ".join(selected_scenarios()) or "(none)"
         st.warning(
-            f"`AC_MONTHLY` has no rows for the selected scenario "
-            f"(**{scen}**). Pick a scenario with a monthly run in the sidebar."
+            f"`AC_MONTHLY` has no rows for the selected scenario(s): **{sel}**. "
+            "Pick a scenario with a monthly run in the sidebar."
         )
         st.stop()
     return mon

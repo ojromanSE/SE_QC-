@@ -20,6 +20,21 @@ Community Cloud (Linux).
 The global page-level slicer **Reserve Category (RsvCat)** in the sidebar
 matches the PowerBI page filter.
 
+### Aries scenarios
+
+Aries data carries a `SCENARIO` column. The sidebar **Aries scenario(s)**
+multiselect picks one case (default = the case with monthly economics so
+reserves and cashflow tie) or two+ to compare. With two+ selected, a
+**Multi-scenario view** toggle appears:
+
+- **Overlay** — scenarios become series on one chart (line, scatter, box).
+- **Split** — a panel per scenario for every chart type.
+
+A second scenario's monthly stream can come from the database (re-export with
+that case's monthly run) or from a **monthly xls** appended in the sidebar
+(sheet `AC_MONTHLY` with PROPNUM, OUTDATE and the Aries S-codes; the scenario
+name you type is applied).
+
 ### Chart options
 
 Every chart has its own **Options** popover (button above the plot):
