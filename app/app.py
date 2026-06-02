@@ -164,10 +164,6 @@ def sidebar_uploads():
     if phd_loaded or aries_loaded:
         chart_options(store)
 
-    st.sidebar.divider()
-    st.sidebar.caption("**Loaded:** " + (", ".join(
-        [k for k in store if not k.startswith("__")] + [f"Aries:{k}" for k in ar]) or "nothing yet"))
-
 
 def _data_date_span(store: dict):
     """Min/max date across loaded time-series tables, for the date-range anchor."""
@@ -274,12 +270,44 @@ def main():
         _pg("aries/24_Economics_LOS_Tieout.py", "Economics LOS Tie Out"),
         _pg("aries_browser.py", "Table Browser"),
     ]
-    overview = [
-        _pg("home.py", "Home"),
-        _pg("data_inspector.py", "Data Inspector"),
-    ]
+    inspector = _pg("data_inspector.py", "Data Inspector")
 
-    nav = st.navigation({"Overview": overview, "PHDWin QC": phdwin, "Aries QC": aries})
+    store = dl.get_store()
+    phd_loaded = ("LseEco" in store) or ("LseInfo" in store)
+    ar = store.get("__aries__") or {}
+    aries_loaded = bool(ar) and (("AC_ONELINE" in ar) or ("AC_MONTHLY" in ar))
+
+    # Order so the default landing page matches the loaded source.
+    if aries_loaded and not phd_loaded:
+        ordered = aries + phdwin + [inspector]
+    else:
+        ordered = phdwin + aries + [inspector]
+
+    # Hide the built-in nav; we render our own links in the sidebar below the
+    # data + filter steps so the order is data -> filters -> visualizations.
+    nav = st.navigation(ordered, position="hidden")
+
+    # --- Step 3: visualizations (source-aware page links) ------------------
+    st.sidebar.divider()
+    st.sidebar.header("Step 3 · Visualizations")
+    if aries_loaded:
+        if not phd_loaded:
+            for p in aries:
+                st.sidebar.page_link(p)
+        else:
+            st.sidebar.caption("**Aries QC**")
+            for p in aries:
+                st.sidebar.page_link(p)
+    if phd_loaded:
+        if aries_loaded:
+            st.sidebar.caption("**PHDWin QC**")
+        for p in phdwin:
+            st.sidebar.page_link(p)
+    if not (phd_loaded or aries_loaded):
+        st.sidebar.caption("Upload data above to see the visualizations.")
+    st.sidebar.divider()
+    st.sidebar.page_link(inspector)
+
     nav.run()
 
 
