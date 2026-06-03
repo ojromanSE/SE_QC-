@@ -9,10 +9,15 @@ the user sees them.
 """
 from __future__ import annotations
 import io
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import streamlit as st
+
+
+# When True, chart helpers collect figures/tables but skip live st.* rendering
+# and the per-plot Options popover. Used by the "export all pages" run.
+COLLECT_ONLY = False
 
 
 def _state() -> Dict[str, Any]:
@@ -62,14 +67,56 @@ def _filter_meta() -> str:
     return "  •  ".join(parts)
 
 
+def _page_flowables(title, figs, tables, styles, *, heading_style="Heading1"):
+    """ReportLab flowables for one page's title, figures and tables."""
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Image, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib import colors
+
+    flow = []
+    if title:
+        flow.append(Paragraph(title, styles[heading_style]))
+        flow.append(Spacer(1, 0.1 * inch))
+    for fig in figs:
+        try:
+            png = fig.to_image(format="png", width=1400, height=750, scale=2)
+        except Exception as e:
+            flow.append(Paragraph(f"<i>Chart render failed: {e}</i>", styles["Normal"]))
+            continue
+        flow.append(Image(io.BytesIO(png), width=9.5 * inch, height=5.0 * inch))
+        flow.append(Spacer(1, 0.15 * inch))
+    for t in tables:
+        df: pd.DataFrame = t["df"]
+        if df is None or df.empty:
+            continue
+        if t.get("caption"):
+            flow.append(Paragraph(f"<b>{t['caption']}</b>", styles["Normal"]))
+        show = df.copy()
+        for c in t.get("money_cols", []):
+            if c in show.columns:
+                show[c] = show[c].map(lambda v: "" if pd.isna(v) else f"${v:,.0f}")
+        for c in t.get("int_cols", []):
+            if c in show.columns:
+                show[c] = show[c].map(lambda v: "" if pd.isna(v) else f"{v:,.0f}")
+        data = [list(show.columns)] + show.astype(str).values.tolist()
+        tbl = Table(data, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        flow.append(tbl)
+        flow.append(Spacer(1, 0.15 * inch))
+    return flow
+
+
 def build_pdf() -> bytes:
-    """Assemble the collected figures and tables into a PDF, in render order."""
+    """Assemble the current page's collected figures/tables into a PDF."""
     from reportlab.lib.pagesizes import LETTER, landscape
     from reportlab.lib.units import inch
-    from reportlab.platypus import (SimpleDocTemplate, Image, Paragraph, Spacer,
-                                    Table, TableStyle, PageBreak)
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib import colors
 
     s = _state()
     buf = io.BytesIO()
@@ -87,45 +134,42 @@ def build_pdf() -> bytes:
     if meta:
         flow.append(Paragraph(meta, styles["Normal"]))
         flow.append(Spacer(1, 0.15 * inch))
-
-    img_w = 9.5 * inch  # landscape Letter - margins
-    img_h = 5.0 * inch
-
-    for fig in s["figs"]:
-        try:
-            png = fig.to_image(format="png", width=1400, height=750, scale=2)
-        except Exception as e:
-            flow.append(Paragraph(f"<i>Chart render failed: {e}</i>", styles["Normal"]))
-            continue
-        flow.append(Image(io.BytesIO(png), width=img_w, height=img_h))
-        flow.append(Spacer(1, 0.15 * inch))
-
-    for t in s["tables"]:
-        df: pd.DataFrame = t["df"]
-        if df is None or df.empty:
-            continue
-        if t["caption"]:
-            flow.append(Paragraph(f"<b>{t['caption']}</b>", styles["Normal"]))
-        show = df.copy()
-        for c in t["money_cols"]:
-            if c in show.columns:
-                show[c] = show[c].map(lambda v: "" if pd.isna(v) else f"${v:,.0f}")
-        for c in t["int_cols"]:
-            if c in show.columns:
-                show[c] = show[c].map(lambda v: "" if pd.isna(v) else f"{v:,.0f}")
-        data = [list(show.columns)] + show.astype(str).values.tolist()
-        tbl = Table(data, repeatRows=1)
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ]))
-        flow.append(tbl)
-        flow.append(Spacer(1, 0.15 * inch))
-
+    flow += _page_flowables(None, s["figs"], s["tables"], styles)
     if not flow:
         flow.append(Paragraph("No charts or tables were rendered on this page.", styles["Normal"]))
+    doc.build(flow)
+    return buf.getvalue()
+
+
+def build_full_pdf(pages: List[Tuple[str, list, list]], report_title: str = "QC Report") -> bytes:
+    """Assemble a multi-page report: one section per (title, figs, tables)."""
+    from reportlab.lib.pagesizes import LETTER, landscape
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=landscape(LETTER),
+        leftMargin=0.4 * inch, rightMargin=0.4 * inch,
+        topMargin=0.4 * inch, bottomMargin=0.4 * inch,
+        title=report_title,
+    )
+    styles = getSampleStyleSheet()
+    flow = [Paragraph(report_title, styles["Title"])]
+    meta = _filter_meta()
+    if meta:
+        flow.append(Paragraph(meta, styles["Normal"]))
+    flow.append(Spacer(1, 0.2 * inch))
+    # Table of contents
+    flow.append(Paragraph("<b>Contents</b>", styles["Heading2"]))
+    for i, (title, _, _) in enumerate(pages, 1):
+        flow.append(Paragraph(f"{i}. {title}", styles["Normal"]))
+    flow.append(PageBreak())
+
+    for title, figs, tables in pages:
+        flow += _page_flowables(title, figs, tables, styles)
+        flow.append(PageBreak())
 
     doc.build(flow)
     return buf.getvalue()

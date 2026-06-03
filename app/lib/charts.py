@@ -61,6 +61,8 @@ def _plot_controls(ckey, *, df=None, date_col=None, series_values=None, series_l
     Returns dict(scale, range, series, rollup).
     """
     res = {"scale": yaxis_type(), "range": _global_range(), "series": None, "rollup": False}
+    if pdf_export.COLLECT_ONLY:
+        return res  # headless export: use defaults, no popover/widgets
     with st.popover("Options", use_container_width=False):
         sc = st.radio("Y-axis scale", ["Linear", "Log"], horizontal=True,
                       index=1 if res["scale"] == "log" else 0, key=f"{ckey}_scale")
@@ -126,6 +128,9 @@ def pv_select(df: pd.DataFrame, key: str, default: str = "PV10 ($)", label: str 
     opts = available_pv_columns(df)
     if not opts:
         return None
+    if pdf_export.COLLECT_ONLY:
+        chosen = st.session_state.get(f"pv_{key}", default)
+        return chosen if chosen in opts else (default if default in opts else opts[0])
     idx = opts.index(default) if default in opts else 0
     return st.selectbox(label, opts, index=idx, key=f"pv_{key}")
 

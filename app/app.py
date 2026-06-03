@@ -12,6 +12,7 @@ from lib import data_loader as dl
 from lib import transform as tf
 from lib import aries_transform as atf
 from lib import pdf_export
+from lib import report
 
 st.set_page_config(page_title="PHDWin / Aries QC", layout="wide")
 
@@ -237,13 +238,15 @@ def render_top_filters(store: dict, phd_loaded: bool, aries_loaded: bool):
 
         _date_widget(store)
 
-        # Export-PDF row. The first click sets a flag; on rerun, the page
-        # populates the pdf_export registry and we surface a Download button
-        # at the bottom of the page that has the freshly-built bytes.
-        ex_l, ex_r = st.columns([1, 4])
+        # Export-PDF row. Each button sets a flag; on the next rerun the
+        # corresponding builder runs and a Download button is surfaced.
+        ex_l, ex_r, _ = st.columns([1, 1, 3])
         with ex_l:
-            if st.button("📄 Export this page to PDF", key="_pdf_export_btn", use_container_width=True):
+            if st.button("📄 Export this page", key="_pdf_export_btn", use_container_width=True):
                 st.session_state["_pdf_pending"] = True
+        with ex_r:
+            if st.button("📚 Export all pages", key="_pdf_all_btn", use_container_width=True):
+                st.session_state["_pdf_all_pending"] = True
 
     # JS shim: tag the wrapper sticky. Runs in a small (height=0) iframe but
     # reaches into the parent doc to add the class and inject the stylesheet.
@@ -275,59 +278,8 @@ def _pg(path: str, title: str, icon: str = ""):
 def main():
     sidebar_uploads()
 
-    phdwin = [
-        _pg("phdwin/01_Reserves_Summary.py", "Reserves Summary"),
-        _pg("phdwin/02_Map.py", "Map"),
-        _pg("phdwin/03_Oneline.py", "Oneline"),
-        _pg("phdwin/04_Pie_Chart.py", "Pie Chart"),
-        _pg("phdwin/05_Gross_Production.py", "Gross Production"),
-        _pg("phdwin/06_Net_Production.py", "Net Production"),
-        _pg("phdwin/07_Well_Count.py", "Well Count"),
-        _pg("phdwin/08_Net_Revenue.py", "Net Revenue"),
-        _pg("phdwin/09_Cash_Flow.py", "Cash Flow"),
-        _pg("phdwin/10_Net_CF_by_Case.py", "Net Cash Flow by Case"),
-        _pg("phdwin/11_Opex_vs_Time.py", "Opex ($/Boe) vs Time"),
-        _pg("phdwin/12_Yield_vs_Shrink_Plot.py", "Yield vs. Shrink Plot"),
-        _pg("phdwin/13_Yield_Shrink_Box.py", "Yield / Shrink Box Plot"),
-        _pg("phdwin/14_Taxes_Box.py", "Taxes Box Plot"),
-        _pg("phdwin/15_PV10_by_Operator.py", "PV by Operator"),
-        _pg("phdwin/16_PV10_by_County.py", "PV by County"),
-        _pg("phdwin/17_PV10_by_LeaseName.py", "PV by LEASE_NAME"),
-        _pg("phdwin/18_Reserves_Opex_Capex_Check.py", "Reserves, Opex, Capex Check"),
-        _pg("phdwin/19_ResCat_API_Check.py", "ResCat & API Check"),
-        _pg("phdwin/20_FD_Opex_Percent_Revenue.py", "F&D, Opex % of Revenue"),
-        _pg("phdwin/21_Sev_Tax_by_Phase.py", "Sev Tax by Phase"),
-        _pg("phdwin/22_Realized_Prices.py", "Realized Prices"),
-        _pg("phdwin/23_Volumes_LOS_Tieout.py", "Volumes LOS Tie Out"),
-        _pg("phdwin/24_Economics_LOS_Tieout.py", "Economics LOS Tie Out"),
-    ]
-    aries = [
-        _pg("aries/01_Reserves_Summary.py", "Reserves Summary"),
-        _pg("aries/02_Map.py", "Map"),
-        _pg("aries/03_Oneline_Report.py", "Oneline Report"),
-        _pg("aries/04_Pie_Chart.py", "Pie Chart"),
-        _pg("aries/05_Gross_Production.py", "Gross Production"),
-        _pg("aries/06_Net_Production.py", "Net Production"),
-        _pg("aries/07_Well_Count.py", "Well Count"),
-        _pg("aries/08_Net_Revenue.py", "Net Revenue"),
-        _pg("aries/09_Cash_Flow.py", "Cash Flow"),
-        _pg("aries/10_Net_CF_by_Case.py", "Net Cash Flow by Case"),
-        _pg("aries/11_Opex_vs_Time.py", "Opex ($/Boe) vs Time"),
-        _pg("aries/12_Yield_vs_Shrink_Plot.py", "Yield vs. Shrink Plot"),
-        _pg("aries/13_Yield_Shrink_Box.py", "Yield / Shrink Box Plot"),
-        _pg("aries/14_Taxes_Box.py", "Taxes Box Plot"),
-        _pg("aries/15_PV10_by_Operator.py", "PV by Operator"),
-        _pg("aries/16_PV10_by_County.py", "PV by County"),
-        _pg("aries/17_PV10_by_LeaseName.py", "PV by LEASE_NAME"),
-        _pg("aries/18_Reserves_Opex_Capex_Check.py", "Reserves, Opex, Capex Check"),
-        _pg("aries/19_ResCat_API_Check.py", "ResCat & API Check"),
-        _pg("aries/20_FD_Opex_Percent_Revenue.py", "F&D, Opex % of Revenue"),
-        _pg("aries/21_Sev_Tax_by_Phase.py", "Sev Tax by Phase"),
-        _pg("aries/22_Realized_Prices.py", "Realized Prices"),
-        _pg("aries/23_Volumes_LOS_Tieout.py", "Volumes LOS Tie Out"),
-        _pg("aries/24_Economics_LOS_Tieout.py", "Economics LOS Tie Out"),
-        _pg("aries_browser.py", "Table Browser"),
-    ]
+    phdwin = [_pg(p, t) for p, t in report.PHDWIN_SPECS]
+    aries = [_pg(p, t) for p, t in report.ARIES_SPECS] + [_pg("aries_browser.py", "Table Browser")]
     inspector = _pg("data_inspector.py", "Data Inspector")
 
     store = dl.get_store()
@@ -370,6 +322,34 @@ def main():
 
     # Filters render as a bar at the top of the main area, above the page title.
     render_top_filters(store, phd_loaded, aries_loaded)
+
+    # Full-report export: run every page headlessly with current filters and
+    # offer one combined PDF. Skip the normal page render on this pass.
+    if st.session_state.get("_pdf_all_pending"):
+        st.session_state["_pdf_all_pending"] = False
+        specs = []
+        if aries_loaded:
+            specs += report.ARIES_SPECS
+        if phd_loaded:
+            specs += report.PHDWIN_SPECS
+        report_title = "Aries QC Report" if (aries_loaded and not phd_loaded) else \
+                       ("PHDWin QC Report" if (phd_loaded and not aries_loaded) else "QC Report")
+        if not specs:
+            st.warning("Load data first.")
+        else:
+            try:
+                with st.spinner(f"Rendering {len(specs)} pages to PDF… this can take a minute."):
+                    pdf_bytes = report.export_all_pages(specs, report_title)
+                st.success(f"Full report ready — {len(specs)} pages, {len(pdf_bytes)/1024:.0f} KB.")
+                st.download_button(
+                    "⬇️ Download full report PDF", data=pdf_bytes,
+                    file_name=pdf_export.safe_filename(report_title),
+                    mime="application/pdf", key="_pdf_all_dl_btn",
+                )
+            except Exception as e:
+                st.error(f"Full-report export failed: {e}")
+        return  # don't render the normal page on the export pass
+
     nav.run()
 
     # After the page rendered, every chart/table has populated the registry.
