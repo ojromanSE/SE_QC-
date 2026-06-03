@@ -1,10 +1,16 @@
 import streamlit as st
 from lib import charts, aries as A
 
-st.title("Aries · Taxes Box Plot")
+st.title("Aries · Taxes per BOE")
+st.caption("Volume-weighted tax per BOE = Σ tax ÷ Σ Net Equivalent (Boe) per month.")
 mon = A.monthly_guard(st)
 sel = st.session_state.get("aries_rsvcat_selection") or []
 e = A.apply_rsvcat(mon, sel)
-for col, label in [("Sev. Tax/BOE", "Sev. Tax/BOE by Year"), ("Ad Val Tax/BOE", "Ad Val Tax/BOE by Year")]:
-    if col in e.columns and "Year" in e.columns:
-        charts.box_by_group(e, "Year", col, sample="LSE_NAME", title=label)
+
+specs = [
+    ("Total Sev Tax ($)", "Net Equivalent (Boe)", "Sev. Tax / BOE"),
+    ("Total Ad Val Tax ($)", "Net Equivalent (Boe)", "Ad Val Tax / BOE"),
+]
+for num, den, title in specs:
+    if num in e.columns and den in e.columns:
+        charts.weighted_line(e, "Prod Date", num, den, title=title)
