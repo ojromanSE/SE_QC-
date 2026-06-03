@@ -2,10 +2,19 @@
 from __future__ import annotations
 import re
 from typing import Iterable, List, Optional
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
+from . import pdf_export
+
+
+def _render(fig, *, key: Optional[str] = None):
+    """Render a Plotly figure and also push it into the PDF registry."""
+    pdf_export.collect_fig(fig)
+    st.plotly_chart(fig, use_container_width=True, **({"key": key} if key else {}))
 
 
 PALETTE = px.colors.qualitative.Plotly
@@ -129,7 +138,9 @@ def fmt_money(s: pd.Series) -> pd.Series:
     return s.map(lambda v: "" if pd.isna(v) else f"${v:,.0f}")
 
 
-def show_table(df: pd.DataFrame, *, money_cols: Iterable[str] = (), int_cols: Iterable[str] = (), height: int = 320):
+def show_table(df: pd.DataFrame, *, money_cols: Iterable[str] = (), int_cols: Iterable[str] = (),
+               height: int = 320, caption: str = ""):
+    pdf_export.collect_table(df, money_cols=money_cols, int_cols=int_cols, caption=caption)
     show = df.copy()
     for c in money_cols:
         if c in show.columns: show[c] = fmt_money(show[c])
@@ -149,6 +160,7 @@ def pie(df: pd.DataFrame, names: str, values: str, title: str = "", key: str = "
     g = df.groupby(names, dropna=False)[values].sum().reset_index()
     fig = px.pie(g, names=names, values=values, title=title, hole=0.0)
     fig.update_traces(textposition="inside", textinfo="percent+label")
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -170,6 +182,7 @@ def grouped_column(df: pd.DataFrame, x: str, ys: List[str], title: str = "", bar
         fig.add_bar(x=g[x], y=g[c], name=c, marker_color=PALETTE[i % len(PALETTE)])
     fig.update_layout(title=title, barmode=barmode, xaxis_title=x, legend_title="")
     fig.update_yaxes(type=ctrl["scale"])
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -186,6 +199,7 @@ def stacked_column(df: pd.DataFrame, x: str, y: str, color: str, title: str = ""
     fig = px.bar(g, x=x, y=y, color=color, title=title)
     fig.update_layout(barmode="stack")
     fig.update_yaxes(type=ctrl["scale"])
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -218,6 +232,7 @@ def line(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, title: s
     g = df.groupby(by, dropna=False)[y].sum().reset_index().sort_values(x)
     fig = px.line(g, x=x, y=y, color=use_color, line_dash=dash, title=title)
     fig.update_yaxes(type=ctrl["scale"])
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -244,6 +259,7 @@ def weighted_line(df: pd.DataFrame, x: str, num: str, den: str, title: str = "",
     fig = px.line(g, x=x, y="__ratio", color="SCENARIO" if overlay else None, title=title)
     fig.update_yaxes(type=ctrl["scale"])
     fig.update_layout(yaxis_title=title or "Realized price")
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -272,6 +288,7 @@ def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: s
         yaxis2=dict(title=line_y, overlaying="y", side="right", type="log" if log else "linear"),
         legend=dict(orientation="h", y=-0.2),
     )
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -294,6 +311,7 @@ def treemap(df: pd.DataFrame, path: List[str], values: str, title: str = "", key
         st.info("No positive values."); return
     fig = px.treemap(g, path=cols, values=values, title=title)
     fig.update_traces(textinfo="label+value+percent parent")
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -313,6 +331,7 @@ def box_by_group(df: pd.DataFrame, group: str, value: str, sample: Optional[str]
     fig = px.box(d, x=group, y=value, color="SCENARIO" if scns else None, points="outliers", title=title,
                  hover_data=[sample] if sample and sample in d.columns else None)
     fig.update_yaxes(type=ctrl["scale"])
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -326,6 +345,7 @@ def histogram(df: pd.DataFrame, value: str, bins: int = 30, title: str = "", key
     ctrl = _plot_controls(ck)
     fig = px.histogram(d, x=value, nbins=bins, title=title)
     fig.update_yaxes(type=ctrl["scale"])  # log scale applies to the count (y) axis
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -351,6 +371,7 @@ def scatter(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, hover
     fig = px.scatter(d, x=x, y=y, color=use_color, symbol=symbol,
                      hover_name=hover if hover and hover in d.columns else None, title=title)
     fig.update_yaxes(type=ctrl["scale"])
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
 
 
@@ -420,6 +441,7 @@ def well_map(df: pd.DataFrame, slat: str, slon: str, blat: Optional[str] = None,
                     zoom=_map_zoom(d[slat], d[slon])),
         margin=dict(l=0, r=0, t=40, b=0), legend=dict(orientation="h", y=-0.05),
     )
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{_ckey(key, title)}_fig")
 
 
@@ -443,4 +465,5 @@ def los_tie_out_bars(long_df: pd.DataFrame, line_item: str, calc_df: pd.DataFram
     fig.add_bar(x=m["Date"], y=m["Calculated"], name="Calculated", marker_color=PALETTE[1])
     fig.update_layout(title=title, barmode="group", xaxis_title="Date", legend=dict(orientation="h", y=-0.2))
     fig.update_yaxes(type=ctrl["scale"])
+    pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")

@@ -17,4 +17,6 @@ e = charts.filter_dates(e, "Prod Date")
 g = e.dropna(subset=["Lse_Id", "Prod Date"]).groupby("Prod Date")["Lse_Id"].nunique().reset_index(name="Well Count")
 fig = px.line(g, x="Prod Date", y="Well Count", title="Well Count vs Prod Date")
 fig.update_yaxes(type=charts.yaxis_type())
+from lib import pdf_export
+pdf_export.collect_fig(fig)
 st.plotly_chart(fig, use_container_width=True)

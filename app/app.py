@@ -11,6 +11,7 @@ import streamlit.components.v1 as components
 from lib import data_loader as dl
 from lib import transform as tf
 from lib import aries_transform as atf
+from lib import pdf_export
 
 st.set_page_config(page_title="PHDWin / Aries QC", layout="wide")
 
@@ -236,6 +237,14 @@ def render_top_filters(store: dict, phd_loaded: bool, aries_loaded: bool):
 
         _date_widget(store)
 
+        # Export-PDF row. The first click sets a flag; on rerun, the page
+        # populates the pdf_export registry and we surface a Download button
+        # at the bottom of the page that has the freshly-built bytes.
+        ex_l, ex_r = st.columns([1, 4])
+        with ex_l:
+            if st.button("📄 Export this page to PDF", key="_pdf_export_btn", use_container_width=True):
+                st.session_state["_pdf_pending"] = True
+
     # JS shim: tag the wrapper sticky. Runs in a small (height=0) iframe but
     # reaches into the parent doc to add the class and inject the stylesheet.
     components.html(_STICKY_FILTERS_JS, height=0)
@@ -354,9 +363,30 @@ def main():
     st.sidebar.divider()
     st.sidebar.page_link(inspector)
 
+    # Reset the PDF registry at the top of every rerun, seeded with the active
+    # page's title so the export carries the right name.
+    page_title = getattr(nav, "title", None) or "QC Report"
+    pdf_export.reset(page_title)
+
     # Filters render as a bar at the top of the main area, above the page title.
     render_top_filters(store, phd_loaded, aries_loaded)
     nav.run()
+
+    # After the page rendered, every chart/table has populated the registry.
+    if st.session_state.get("_pdf_pending"):
+        try:
+            with st.spinner("Building PDF…"):
+                pdf_bytes = pdf_export.build_pdf()
+            st.success(f"PDF ready — {len(pdf_bytes)/1024:.0f} KB.")
+            st.download_button(
+                "⬇️ Download PDF", data=pdf_bytes,
+                file_name=pdf_export.safe_filename(page_title),
+                mime="application/pdf", key="_pdf_dl_btn",
+            )
+        except Exception as e:
+            st.error(f"PDF export failed: {e}")
+        finally:
+            st.session_state["_pdf_pending"] = False
 
 
 if __name__ == "__main__":
