@@ -6,12 +6,53 @@ grouped into Overview / PHDWin QC / Aries QC via st.navigation.
 """
 from __future__ import annotations
 import streamlit as st
+import streamlit.components.v1 as components
 
 from lib import data_loader as dl
 from lib import transform as tf
 from lib import aries_transform as atf
 
 st.set_page_config(page_title="PHDWin / Aries QC", layout="wide")
+
+
+_STICKY_FILTERS_JS = """
+<script>
+(function() {
+  const parent = window.parent.document;
+  const STYLE_ID = "sticky-top-filters-style";
+  if (!parent.getElementById(STYLE_ID)) {
+    const s = parent.createElement("style");
+    s.id = STYLE_ID;
+    s.textContent = `
+      .sticky-top-filters {
+        position: sticky !important;
+        top: 3.25rem;
+        z-index: 999;
+        background-color: var(--background-color, #ffffff);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      }
+    `;
+    parent.head.appendChild(s);
+  }
+  function apply() {
+    const anchor = parent.getElementById("top-filters-anchor");
+    if (!anchor) return false;
+    const wrap = anchor.closest('[data-testid="stVerticalBlockBorderWrapper"]')
+              || anchor.closest('div.stVerticalBlock')
+              || anchor.parentElement;
+    if (wrap && !wrap.classList.contains("sticky-top-filters")) {
+      wrap.classList.add("sticky-top-filters");
+    }
+    return true;
+  }
+  if (!apply()) {
+    const obs = new MutationObserver(() => { if (apply()) obs.disconnect(); });
+    obs.observe(parent.body, {childList: true, subtree: true});
+    setTimeout(() => obs.disconnect(), 5000);
+  }
+})();
+</script>
+"""
 
 
 def _phd_uploader(store, expanded):
@@ -159,23 +200,6 @@ def render_top_filters(store: dict, phd_loaded: bool, aries_loaded: bool):
         return
     from lib import aries as A
 
-    # Pin the filter bar to the top of the page while scrolling. We tag the
-    # bordered container with a sentinel span and make its wrapper sticky.
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(span#top-filters-anchor) {
-            position: sticky;
-            top: 3.25rem;
-            z-index: 999;
-            background-color: var(--background-color, white);
-            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     with st.container(border=True):
         st.markdown('<span id="top-filters-anchor"></span>', unsafe_allow_html=True)
         widgets = []  # (label-less) render callables, laid out in equal columns
@@ -205,19 +229,16 @@ def render_top_filters(store: dict, phd_loaded: bool, aries_loaded: bool):
                 st.session_state.setdefault("rsvcat_selection", opts)
                 widgets.append(lambda c: c.multiselect("Reserve category", opts, key="rsvcat_selection"))
 
-        # Y-axis scale always available
-        widgets.append(_scale_widget)
-
-        cols = st.columns(len(widgets))
-        for render, col in zip(widgets, cols):
-            render(col)
+        if widgets:
+            cols = st.columns(len(widgets))
+            for render, col in zip(widgets, cols):
+                render(col)
 
         _date_widget(store)
 
-
-def _scale_widget(col):
-    scale = col.radio("Y-axis scale", ["Linear", "Log"], horizontal=True, key="chart_yscale_label")
-    st.session_state["chart_yscale"] = "log" if scale == "Log" else "linear"
+    # JS shim: tag the wrapper sticky. Runs in a small (height=0) iframe but
+    # reaches into the parent doc to add the class and inject the stylesheet.
+    components.html(_STICKY_FILTERS_JS, height=0)
 
 
 def _date_widget(store: dict):
