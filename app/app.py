@@ -238,15 +238,31 @@ def render_top_filters(store: dict, phd_loaded: bool, aries_loaded: bool):
 
         _date_widget(store)
 
-        # Export-PDF row. Each button sets a flag; on the next rerun the
+        # Export-PDF row. Each action sets a flag; on the next rerun the
         # corresponding builder runs and a Download button is surfaced.
         ex_l, ex_r, _ = st.columns([1, 1, 3])
         with ex_l:
             if st.button("📄 Export this page", key="_pdf_export_btn", use_container_width=True):
                 st.session_state["_pdf_pending"] = True
         with ex_r:
-            if st.button("📚 Export all pages", key="_pdf_all_btn", use_container_width=True):
-                st.session_state["_pdf_all_pending"] = True
+            with st.popover("📚 Export pages", use_container_width=True):
+                # Build the choices for the loaded source(s).
+                choices = []  # (label, relpath, title)
+                if aries_loaded:
+                    choices += [(f"Aries · {t}", p, t) for p, t in report.ARIES_SPECS]
+                if phd_loaded:
+                    choices += [(f"PHDWin · {t}", p, t) for p, t in report.PHDWIN_SPECS]
+                labels = [c[0] for c in choices]
+                st.session_state.setdefault("_pdf_page_sel", labels)
+                picked = st.multiselect("Pages to include", labels, key="_pdf_page_sel")
+                c_all, c_go = st.columns(2)
+                if c_all.button("Select all", key="_pdf_sel_all", use_container_width=True):
+                    st.session_state["_pdf_page_sel"] = labels
+                    st.rerun()
+                if c_go.button("Export selected", key="_pdf_go", use_container_width=True):
+                    chosen = [(p, t) for (lbl, p, t) in choices if lbl in picked]
+                    st.session_state["_pdf_specs"] = chosen
+                    st.session_state["_pdf_all_pending"] = True
 
     # JS shim: tag the wrapper sticky. Runs in a small (height=0) iframe but
     # reaches into the parent doc to add the class and inject the stylesheet.
@@ -327,15 +343,11 @@ def main():
     # offer one combined PDF. Skip the normal page render on this pass.
     if st.session_state.get("_pdf_all_pending"):
         st.session_state["_pdf_all_pending"] = False
-        specs = []
-        if aries_loaded:
-            specs += report.ARIES_SPECS
-        if phd_loaded:
-            specs += report.PHDWIN_SPECS
+        specs = st.session_state.get("_pdf_specs") or []
         report_title = "Aries QC Report" if (aries_loaded and not phd_loaded) else \
                        ("PHDWin QC Report" if (phd_loaded and not aries_loaded) else "QC Report")
         if not specs:
-            st.warning("Load data first.")
+            st.warning("No pages selected.")
         else:
             try:
                 with st.spinner(f"Rendering {len(specs)} pages to PDF… this can take a minute."):

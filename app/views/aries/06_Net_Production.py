@@ -19,7 +19,8 @@ def combo(label, hist_col, fc_col):
     if not pieces:
         st.info(f"No data for {label}."); return
     df = pd.concat(pieces, ignore_index=True).groupby("Prod Date", dropna=False).sum(numeric_only=True).reset_index()
-    charts.grouped_column(df, "Prod Date", [c for c in ["Historical", "Forecast"] if c in df.columns], title=label)
+    charts.grouped_column(df, "Prod Date", [c for c in ["Historical", "Forecast"] if c in df.columns],
+                          title=label, series_colors=charts.production_tones(label))
 
 combo("Net Oil (Bbl/d)", "Net Historical Oil (bbl/d)", "Net Oil (Bbl/d)")
 combo("Net Gas (Mcf/d)", "Net Historical Gas Sold (Mcf/d)", "Net Gas (Mcf/d)")

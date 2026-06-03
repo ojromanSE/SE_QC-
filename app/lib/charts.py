@@ -6,15 +6,26 @@ from typing import Iterable, List, Optional
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
 
 from . import pdf_export
 
+# Streamlit's default "streamlit" Plotly template uses sentinel colorway
+# placeholders (#000001..#000010) that its frontend swaps for real theme
+# colors in the browser. Those export as near-black via Kaleido. Bake real
+# colors into the figures by defaulting to plotly_white, and render every
+# chart with theme=None so the in-app view matches the PDF export exactly.
+pio.templates.default = "plotly_white"
+PLOTLY_THEME = None  # passed to st.plotly_chart
 
-def _render(fig, *, key: Optional[str] = None):
-    """Render a Plotly figure and also push it into the PDF registry."""
+
+def _show(fig, key: Optional[str] = None):
+    """Push the figure to the PDF registry and render it (theme=None so the
+    app and the export use the same baked-in colors)."""
     pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, **({"key": key} if key else {}))
+    st.plotly_chart(fig, use_container_width=True, theme=PLOTLY_THEME,
+                    **({"key": key} if key else {}))
 
 
 PALETTE = px.colors.qualitative.Plotly
@@ -55,6 +66,35 @@ def phase_color_map(names) -> dict:
         if c:
             out[nm] = c
     return out
+
+
+def phase_key(name: str) -> Optional[str]:
+    """Return the phase key (oil/gas/ngl/boe) a name maps to, or None."""
+    if not name:
+        return None
+    n = str(name).lower()
+    for k in PHASE_COLORS:
+        if re.search(rf"\b{k}\b", n):
+            return "boe" if k == "equivalent" else k
+    return None
+
+
+def _lighten(hex_color: str, factor: float = 0.5) -> str:
+    """Blend a #rrggbb color toward white by `factor` (0=same, 1=white)."""
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    r = int(r + (255 - r) * factor)
+    g = int(g + (255 - g) * factor)
+    b = int(b + (255 - b) * factor)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def production_tones(phase_name: str):
+    """For a production metric (e.g. 'Net Oil (Bbl/d)') return colors for the
+    Historical and Forecast series: the phase hue for historical (solid) and a
+    lighter tint for the forecast/projection."""
+    base = phase_color(phase_name) or PALETTE[0]
+    return {"Historical": base, "Forecast": _lighten(base, 0.55)}
 
 
 # --- global defaults (set from the sidebar in app.py) ----------------------
@@ -205,11 +245,11 @@ def pie(df: pd.DataFrame, names: str, values: str, title: str = "", key: str = "
                  color=names if cmap else None,
                  color_discrete_map=cmap or None)
     fig.update_traces(textposition="inside", textinfo="percent+label")
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
-def grouped_column(df: pd.DataFrame, x: str, ys: List[str], title: str = "", barmode: str = "group", key: str = ""):
+def grouped_column(df: pd.DataFrame, x: str, ys: List[str], title: str = "", barmode: str = "group",
+                   key: str = "", series_colors: Optional[dict] = None):
     if df.empty:
         st.info("No data."); return
     cols = [c for c in ys if c in df.columns]
@@ -218,18 +258,18 @@ def grouped_column(df: pd.DataFrame, x: str, ys: List[str], title: str = "", bar
     ck = _ckey(key, title)
     scns, _ = _scn_state(df)
     if scns:  # multi-scenario: one panel per scenario (overlay of multi-bar is unreadable)
-        _split_panels(lambda d, k, t: grouped_column(d, x, ys, t, barmode, k), df, scns, ck, title); return
+        _split_panels(lambda d, k, t: grouped_column(d, x, ys, t, barmode, k, series_colors), df, scns, ck, title); return
     ctrl = _plot_controls(ck, df=df, date_col=x)
     df = _clip(df, x, ctrl["range"])
     g = df.groupby(x, dropna=False)[cols].sum().reset_index().sort_values(x)
     fig = go.Figure()
+    sc = series_colors or {}
     for i, c in enumerate(cols):
-        fig.add_bar(x=g[x], y=g[c], name=c,
-                    marker_color=phase_color(c) or PALETTE[i % len(PALETTE)])
+        color = sc.get(c) or phase_color(c) or PALETTE[i % len(PALETTE)]
+        fig.add_bar(x=g[x], y=g[c], name=c, marker_color=color)
     fig.update_layout(title=title, barmode=barmode, xaxis_title=x, legend_title="")
     fig.update_yaxes(type=ctrl["scale"])
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def stacked_column(df: pd.DataFrame, x: str, y: str, color: str, title: str = "", key: str = ""):
@@ -247,8 +287,7 @@ def stacked_column(df: pd.DataFrame, x: str, y: str, color: str, title: str = ""
                  color_discrete_map=cmap or None)
     fig.update_layout(barmode="stack")
     fig.update_yaxes(type=ctrl["scale"])
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def line(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, title: str = "", key: str = ""):
@@ -280,8 +319,7 @@ def line(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, title: s
     g = df.groupby(by, dropna=False)[y].sum().reset_index().sort_values(x)
     fig = px.line(g, x=x, y=y, color=use_color, line_dash=dash, title=title)
     fig.update_yaxes(type=ctrl["scale"])
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def weighted_line(df: pd.DataFrame, x: str, num: str, den: str, title: str = "", key: str = ""):
@@ -307,8 +345,7 @@ def weighted_line(df: pd.DataFrame, x: str, num: str, den: str, title: str = "",
     fig = px.line(g, x=x, y="__ratio", color="SCENARIO" if overlay else None, title=title)
     fig.update_yaxes(type=ctrl["scale"])
     fig.update_layout(yaxis_title=title or "Realized price")
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: str, title: str = "", key: str = ""):
@@ -337,8 +374,7 @@ def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: s
         yaxis2=dict(title=line_y, overlaying="y", side="right", type="log" if log else "linear"),
         legend=dict(orientation="h", y=-0.2),
     )
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def treemap(df: pd.DataFrame, path: List[str], values: str, title: str = "", key: str = ""):
@@ -360,8 +396,7 @@ def treemap(df: pd.DataFrame, path: List[str], values: str, title: str = "", key
         st.info("No positive values."); return
     fig = px.treemap(g, path=cols, values=values, title=title)
     fig.update_traces(textinfo="label+value+percent parent")
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def box_by_group(df: pd.DataFrame, group: str, value: str, sample: Optional[str] = None, title: str = "", key: str = ""):
@@ -380,8 +415,7 @@ def box_by_group(df: pd.DataFrame, group: str, value: str, sample: Optional[str]
     fig = px.box(d, x=group, y=value, color="SCENARIO" if scns else None, points="outliers", title=title,
                  hover_data=[sample] if sample and sample in d.columns else None)
     fig.update_yaxes(type=ctrl["scale"])
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def histogram(df: pd.DataFrame, value: str, bins: int = 30, title: str = "", key: str = ""):
@@ -394,8 +428,7 @@ def histogram(df: pd.DataFrame, value: str, bins: int = 30, title: str = "", key
     ctrl = _plot_controls(ck)
     fig = px.histogram(d, x=value, nbins=bins, title=title)
     fig.update_yaxes(type=ctrl["scale"])  # log scale applies to the count (y) axis
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def scatter(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, hover: Optional[str] = None,
@@ -420,8 +453,7 @@ def scatter(df: pd.DataFrame, x: str, y: str, color: Optional[str] = None, hover
     fig = px.scatter(d, x=x, y=y, color=use_color, symbol=symbol,
                      hover_name=hover if hover and hover in d.columns else None, title=title)
     fig.update_yaxes(type=ctrl["scale"])
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")
 
 
 def _map_zoom(lat, lon):
@@ -490,8 +522,7 @@ def well_map(df: pd.DataFrame, slat: str, slon: str, blat: Optional[str] = None,
                     zoom=_map_zoom(d[slat], d[slon])),
         margin=dict(l=0, r=0, t=40, b=0), legend=dict(orientation="h", y=-0.05),
     )
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{_ckey(key, title)}_fig")
+    _show(fig, key=f"{_ckey(key, title)}_fig")
 
 
 def los_tie_out_bars(long_df: pd.DataFrame, line_item: str, calc_df: pd.DataFrame, calc_date: str, calc_value: str,
@@ -514,5 +545,4 @@ def los_tie_out_bars(long_df: pd.DataFrame, line_item: str, calc_df: pd.DataFram
     fig.add_bar(x=m["Date"], y=m["Calculated"], name="Calculated", marker_color=PALETTE[1])
     fig.update_layout(title=title, barmode="group", xaxis_title="Date", legend=dict(orientation="h", y=-0.2))
     fig.update_yaxes(type=ctrl["scale"])
-    pdf_export.collect_fig(fig)
-    st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
+    _show(fig, key=f"{ck}_fig")

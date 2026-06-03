@@ -12,6 +12,4 @@ e = charts.filter_dates(e, "Prod Date")
 g = e.dropna(subset=["PROPNUM", "Prod Date"]).groupby("Prod Date")["PROPNUM"].nunique().reset_index(name="Well Count")
 fig = px.line(g, x="Prod Date", y="Well Count", title="Forecasted Well Count vs Prod Date")
 fig.update_yaxes(type=charts.yaxis_type())
-from lib import pdf_export
-pdf_export.collect_fig(fig)
-st.plotly_chart(fig, use_container_width=True)
+charts._show(fig)

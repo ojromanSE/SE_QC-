@@ -68,16 +68,36 @@ def _filter_meta() -> str:
 
 
 _DEFAULT_PLOTLY_BLUES = {"#1f77b4", "#636efa", "rgb(31,119,180)", "rgb(99,110,250)"}
+# Streamlit's "streamlit" template colorway placeholders that render near-black.
+_SENTINELS = {f"#{i:06X}" for i in range(1, 11)} | {f"#{i:06x}" for i in range(1, 11)}
+_SENTINEL_FALLBACK = px_colors = [
+    "#636efa", "#EF553B", "#00cc96", "#ab63fa", "#FFA15A",
+    "#19d3f3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52",
+]
+
+
+def _fix_color(val, idx):
+    """Replace a sentinel/blank color with a real palette color by index."""
+    if val is None:
+        return None
+    if isinstance(val, str) and val in _SENTINELS:
+        return _SENTINEL_FALLBACK[idx % len(_SENTINEL_FALLBACK)]
+    if isinstance(val, (list, tuple)):
+        return [_SENTINEL_FALLBACK[i % len(_SENTINEL_FALLBACK)] if (isinstance(v, str) and v in _SENTINELS) else v
+                for i, v in enumerate(val)]
+    return val
 
 
 def _prepare_export_fig(fig):
-    """Copy `fig`, normalize for static export, and force phase colors.
+    """Copy `fig`, normalize for static export, and force readable colors.
 
-    Kaleido renders with Plotly's stock template, which can look different from
-    the in-app Streamlit theme (notably the bar/line colors drift to a default
-    blue or black). Apply the `plotly_white` template and, for any trace whose
-    name maps to a known phase (Oil/Gas/NGL/Boe), pin its color so the export
-    is unambiguous.
+    Two problems Kaleido hits versus the in-app render:
+    1. Streamlit's default template uses sentinel colorway placeholders
+       (#000001..) the browser swaps client-side; statically they're black.
+    2. Some traces have no explicit color and fall back to a default blue.
+
+    Remap any sentinel colors to a real palette, pin phase colors for traces
+    whose name maps to Oil/Gas/NGL/Boe, and force a white background.
     """
     try:
         from . import charts as _ch
@@ -85,26 +105,23 @@ def _prepare_export_fig(fig):
         _ch = None
     f = type(fig)(fig.to_plotly_json())  # deep-ish copy via JSON round-trip
     f.update_layout(template="plotly_white", paper_bgcolor="white", plot_bgcolor="white")
-    if _ch is None:
-        return f
-    for tr in f.data:
-        pc = _ch.phase_color(getattr(tr, "name", "") or "")
-        if not pc:
-            continue
-        if tr.type == "bar":
-            mk = (tr.marker.color if tr.marker else None)
-            if mk is None or (isinstance(mk, str) and (mk == "" or mk in _DEFAULT_PLOTLY_BLUES)):
-                tr.marker.color = pc
-        elif tr.type in ("scatter", "scattergl"):
-            ln = (tr.line.color if tr.line else None)
-            mk = (tr.marker.color if tr.marker else None)
-            if not ln or ln in _DEFAULT_PLOTLY_BLUES:
-                tr.line.color = pc
-            if not mk or (isinstance(mk, str) and mk in _DEFAULT_PLOTLY_BLUES):
-                tr.marker.color = pc
-        elif tr.type == "pie":
-            # px.pie carries a per-slice color list when color_discrete_map was used.
-            pass
+    for i, tr in enumerate(f.data):
+        pc = _ch.phase_color(getattr(tr, "name", "") or "") if _ch else None
+        # marker color
+        if getattr(tr, "marker", None) is not None:
+            mk = tr.marker.color
+            mk = _fix_color(mk, i)
+            if pc and (mk is None or (isinstance(mk, str) and (mk == "" or mk in _DEFAULT_PLOTLY_BLUES))):
+                mk = pc
+            if mk is not None:
+                tr.marker.color = mk
+        # line color
+        if getattr(tr, "line", None) is not None and hasattr(tr.line, "color"):
+            ln = _fix_color(tr.line.color, i)
+            if pc and (ln is None or (isinstance(ln, str) and ln in _DEFAULT_PLOTLY_BLUES)):
+                ln = pc
+            if ln is not None:
+                tr.line.color = ln
     return f
 
 
