@@ -107,21 +107,28 @@ def _prepare_export_fig(fig):
     f.update_layout(template="plotly_white", paper_bgcolor="white", plot_bgcolor="white")
     for i, tr in enumerate(f.data):
         pc = _ch.phase_color(getattr(tr, "name", "") or "") if _ch else None
-        # marker color
-        if getattr(tr, "marker", None) is not None:
-            mk = tr.marker.color
-            mk = _fix_color(mk, i)
-            if pc and (mk is None or (isinstance(mk, str) and (mk == "" or mk in _DEFAULT_PLOTLY_BLUES))):
-                mk = pc
-            if mk is not None:
-                tr.marker.color = mk
+        # marker color — some trace types (box, histogram) don't expose .color
+        marker = getattr(tr, "marker", None)
+        if marker is not None and hasattr(type(marker), "color"):
+            try:
+                mk = _fix_color(marker.color, i)
+                if pc and (mk is None or (isinstance(mk, str) and (mk == "" or mk in _DEFAULT_PLOTLY_BLUES))):
+                    mk = pc
+                if mk is not None:
+                    marker.color = mk
+            except (AttributeError, ValueError):
+                pass
         # line color
-        if getattr(tr, "line", None) is not None and hasattr(tr.line, "color"):
-            ln = _fix_color(tr.line.color, i)
-            if pc and (ln is None or (isinstance(ln, str) and ln in _DEFAULT_PLOTLY_BLUES)):
-                ln = pc
-            if ln is not None:
-                tr.line.color = ln
+        line = getattr(tr, "line", None)
+        if line is not None and hasattr(type(line), "color"):
+            try:
+                ln = _fix_color(line.color, i)
+                if pc and (ln is None or (isinstance(ln, str) and ln in _DEFAULT_PLOTLY_BLUES)):
+                    ln = pc
+                if ln is not None:
+                    line.color = ln
+            except (AttributeError, ValueError):
+                pass
     return f
 
 
