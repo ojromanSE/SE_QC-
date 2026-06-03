@@ -120,7 +120,7 @@ def enrich_lse_eco(eco: pd.DataFrame, lse_info: pd.DataFrame | None = None,
 
     # Ratios / prices
     setf("Opex ($/Boe)", _safe_div(df["Total Opex ($)"], df["Net Equivalent (Boe)"]))
-    setf("Opex % of Revenue", _safe_div(df["Total Opex ($)"], df["Total Revenue ($)"]))
+    setf("Opex % of Revenue", _safe_div(df["Total Opex ($)"], df["Total Revenue ($)"]) * 100)
     setf("Realized Oil Price ($/Bbl)", _safe_div(df["Net Oil Revenue ($)"], df["Net Oil (Bbl)"]))
     setf("Realized Gas Price ($/Mcf)", _safe_div(df["Net Gas Revenue ($)"], df["Net Gas (Mcf)"]))
     setf("F&D ($/Boe)", _safe_div(df["Net Capex ($)"], df["Net Equivalent (Boe)"]))
