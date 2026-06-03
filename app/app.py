@@ -270,14 +270,20 @@ def render_top_filters(store: dict, phd_loaded: bool, aries_loaded: bool):
 
 
 def _date_widget(store: dict):
+    """Single global date-range control (in the top filter bar). Applies to
+    every chart with a date or Year x-axis. Defaults to the full data span
+    (no clipping); narrowing it clips all those charts at once."""
     span = _data_date_span(store)
     if not span:
         st.session_state["chart_date_range"] = None
         return
-    anchor = st.checkbox("Anchor date range", value=False, key="chart_date_anchor")
-    if anchor:
-        dr = st.date_input("Date range", value=span, min_value=span[0], max_value=span[1], key="chart_date_input")
-        st.session_state["chart_date_range"] = dr if isinstance(dr, (list, tuple)) and len(dr) == 2 else None
+    lo, hi = span
+    st.session_state.setdefault("chart_date_input", (lo, hi))
+    dr = st.date_input("Date range (all time-series)", min_value=lo, max_value=hi,
+                       key="chart_date_input",
+                       help="Applies to every chart with a date or year x-axis.")
+    if isinstance(dr, (list, tuple)) and len(dr) == 2 and (dr[0] > lo or dr[1] < hi):
+        st.session_state["chart_date_range"] = dr
     else:
         st.session_state["chart_date_range"] = None
 

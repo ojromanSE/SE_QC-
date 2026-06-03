@@ -133,9 +133,10 @@ def _clip(df: pd.DataFrame, xcol: str, rng) -> pd.DataFrame:
 
 
 def _plot_controls(ckey, *, df=None, date_col=None, series_values=None, series_label="Series"):
-    """Per-plot Options popover: y-axis scale, date range, and (for by-lease
-    plots) a lease multiselect + roll-up toggle. Seeds from the sidebar globals.
-    Returns dict(scale, range, series, rollup).
+    """Per-plot Options popover: y-axis scale and (for by-lease plots) a lease
+    multiselect + roll-up toggle. The date range is global (set once in the top
+    filter bar), so it is not repeated per plot. Returns dict(scale, range,
+    series, rollup); `range` is always the global date range.
     """
     res = {"scale": yaxis_type(), "range": _global_range(), "series": None, "rollup": False}
     if pdf_export.COLLECT_ONLY:
@@ -144,19 +145,6 @@ def _plot_controls(ckey, *, df=None, date_col=None, series_values=None, series_l
         sc = st.radio("Y-axis scale", ["Linear", "Log"], horizontal=True,
                       index=1 if res["scale"] == "log" else 0, key=f"{ckey}_scale")
         res["scale"] = "log" if sc == "Log" else "linear"
-
-        if df is not None and date_col and date_col in df.columns:
-            col = df[date_col].dropna()
-            if pd.api.types.is_datetime64_any_dtype(col) and not col.empty:
-                lo, hi = col.min().date(), col.max().date()
-                if lo < hi:
-                    dr = st.date_input("Date range", (lo, hi), min_value=lo, max_value=hi, key=f"{ckey}_dr")
-                    if isinstance(dr, (list, tuple)) and len(dr) == 2:
-                        res["range"] = dr
-            elif pd.api.types.is_numeric_dtype(col) and not col.empty:
-                lo, hi = int(col.min()), int(col.max())
-                if lo < hi:
-                    res["range"] = st.slider("Year range", lo, hi, (lo, hi), key=f"{ckey}_yr")
 
         if series_values:
             res["rollup"] = st.checkbox("Roll up (combine all)", value=False, key=f"{ckey}_rollup")
