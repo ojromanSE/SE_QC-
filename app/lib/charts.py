@@ -19,6 +19,43 @@ def _render(fig, *, key: Optional[str] = None):
 
 PALETTE = px.colors.qualitative.Plotly
 
+# Phase-specific colors so charts read consistently across the app and in the
+# PDF export. Anything that mentions oil/gas/ngl/boe (case-insensitive, with or
+# without parenthetical units) maps to the standard hue.
+PHASE_COLORS = {
+    "oil": "#2ca02c",   # green
+    "gas": "#d62728",   # red
+    "ngl": "#9467bd",   # purple
+    "boe": "#ff7f0e",   # orange
+    "equivalent": "#ff7f0e",
+}
+
+
+def phase_color(name: str) -> Optional[str]:
+    """Map a series/column name to a phase color, or None if no match.
+
+    Matches whole-word so 'Oil Revenue' resolves to oil and 'NGL Yield' to ngl,
+    but 'Oneline' (which contains 'one') still does not resolve since 'one'
+    isn't a phase key.
+    """
+    if not name:
+        return None
+    n = str(name).lower()
+    for k, c in PHASE_COLORS.items():
+        if re.search(rf"\b{k}\b", n):
+            return c
+    return None
+
+
+def phase_color_map(names) -> dict:
+    """Build a color map for px.* color_discrete_map from a list of series names."""
+    out = {}
+    for nm in names:
+        c = phase_color(nm)
+        if c:
+            out[nm] = c
+    return out
+
 
 # --- global defaults (set from the sidebar in app.py) ----------------------
 def yaxis_type() -> str:
@@ -163,7 +200,10 @@ def pie(df: pd.DataFrame, names: str, values: str, title: str = "", key: str = "
     if scns:
         _split_panels(lambda d, k, t: pie(d, names, values, t, k), df, scns, ck, title); return
     g = df.groupby(names, dropna=False)[values].sum().reset_index()
-    fig = px.pie(g, names=names, values=values, title=title, hole=0.0)
+    cmap = phase_color_map(g[names].astype(str).tolist())
+    fig = px.pie(g, names=names, values=values, title=title, hole=0.0,
+                 color=names if cmap else None,
+                 color_discrete_map=cmap or None)
     fig.update_traces(textposition="inside", textinfo="percent+label")
     pdf_export.collect_fig(fig)
     st.plotly_chart(fig, use_container_width=True, key=f"{ck}_fig")
@@ -184,7 +224,8 @@ def grouped_column(df: pd.DataFrame, x: str, ys: List[str], title: str = "", bar
     g = df.groupby(x, dropna=False)[cols].sum().reset_index().sort_values(x)
     fig = go.Figure()
     for i, c in enumerate(cols):
-        fig.add_bar(x=g[x], y=g[c], name=c, marker_color=PALETTE[i % len(PALETTE)])
+        fig.add_bar(x=g[x], y=g[c], name=c,
+                    marker_color=phase_color(c) or PALETTE[i % len(PALETTE)])
     fig.update_layout(title=title, barmode=barmode, xaxis_title=x, legend_title="")
     fig.update_yaxes(type=ctrl["scale"])
     pdf_export.collect_fig(fig)
@@ -201,7 +242,9 @@ def stacked_column(df: pd.DataFrame, x: str, y: str, color: str, title: str = ""
     ctrl = _plot_controls(ck, df=df, date_col=x)
     df = _clip(df, x, ctrl["range"])
     g = df.groupby([x, color], dropna=False)[y].sum().reset_index().sort_values(x)
-    fig = px.bar(g, x=x, y=y, color=color, title=title)
+    cmap = phase_color_map(g[color].astype(str).unique().tolist())
+    fig = px.bar(g, x=x, y=y, color=color, title=title,
+                 color_discrete_map=cmap or None)
     fig.update_layout(barmode="stack")
     fig.update_yaxes(type=ctrl["scale"])
     pdf_export.collect_fig(fig)
@@ -282,10 +325,11 @@ def combo_revenue_opex_cf(df: pd.DataFrame, x: str, bar_ys: List[str], line_y: s
     g = df.groupby(x, dropna=False)[cols].sum().reset_index().sort_values(x)
     fig = go.Figure()
     for i, c in enumerate([c for c in bar_ys if c in g.columns]):
-        fig.add_bar(x=g[x], y=g[c], name=c, marker_color=PALETTE[i % len(PALETTE)])
+        fig.add_bar(x=g[x], y=g[c], name=c,
+                    marker_color=phase_color(c) or PALETTE[i % len(PALETTE)])
     if line_y in g.columns:
         fig.add_trace(go.Scatter(x=g[x], y=g[line_y], name=line_y, mode="lines+markers",
-                                 yaxis="y2", line=dict(color="#d62728", width=3)))
+                                 yaxis="y2", line=dict(color=phase_color(line_y) or "#1f77b4", width=3)))
     log = ctrl["scale"] == "log"
     fig.update_layout(
         title=title, barmode="relative",

@@ -67,6 +67,47 @@ def _filter_meta() -> str:
     return "  •  ".join(parts)
 
 
+_DEFAULT_PLOTLY_BLUES = {"#1f77b4", "#636efa", "rgb(31,119,180)", "rgb(99,110,250)"}
+
+
+def _prepare_export_fig(fig):
+    """Copy `fig`, normalize for static export, and force phase colors.
+
+    Kaleido renders with Plotly's stock template, which can look different from
+    the in-app Streamlit theme (notably the bar/line colors drift to a default
+    blue or black). Apply the `plotly_white` template and, for any trace whose
+    name maps to a known phase (Oil/Gas/NGL/Boe), pin its color so the export
+    is unambiguous.
+    """
+    try:
+        from . import charts as _ch
+    except Exception:
+        _ch = None
+    f = type(fig)(fig.to_plotly_json())  # deep-ish copy via JSON round-trip
+    f.update_layout(template="plotly_white", paper_bgcolor="white", plot_bgcolor="white")
+    if _ch is None:
+        return f
+    for tr in f.data:
+        pc = _ch.phase_color(getattr(tr, "name", "") or "")
+        if not pc:
+            continue
+        if tr.type == "bar":
+            mk = (tr.marker.color if tr.marker else None)
+            if mk is None or (isinstance(mk, str) and (mk == "" or mk in _DEFAULT_PLOTLY_BLUES)):
+                tr.marker.color = pc
+        elif tr.type in ("scatter", "scattergl"):
+            ln = (tr.line.color if tr.line else None)
+            mk = (tr.marker.color if tr.marker else None)
+            if not ln or ln in _DEFAULT_PLOTLY_BLUES:
+                tr.line.color = pc
+            if not mk or (isinstance(mk, str) and mk in _DEFAULT_PLOTLY_BLUES):
+                tr.marker.color = pc
+        elif tr.type == "pie":
+            # px.pie carries a per-slice color list when color_discrete_map was used.
+            pass
+    return f
+
+
 def _page_flowables(title, figs, tables, styles, *, heading_style="Heading1"):
     """ReportLab flowables for one page's title, figures and tables."""
     from reportlab.lib.units import inch
@@ -79,7 +120,8 @@ def _page_flowables(title, figs, tables, styles, *, heading_style="Heading1"):
         flow.append(Spacer(1, 0.1 * inch))
     for fig in figs:
         try:
-            png = fig.to_image(format="png", width=1400, height=750, scale=2)
+            export_fig = _prepare_export_fig(fig)
+            png = export_fig.to_image(format="png", width=1400, height=750, scale=2)
         except Exception as e:
             flow.append(Paragraph(f"<i>Chart render failed: {e}</i>", styles["Normal"]))
             continue
